@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cisco Meraki Licensing Viewer</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1c2330; --muted: #5f6b7c; --border: #dfe3e8;
+  --accent: #0a6cbd; --accent-soft: #e3f0fb; --ok: #1f8a4c; --ok-soft: #e2f4ea;
+  --warn: #b26a00; --warn-soft: #fdf1dc; --bad: #c0362c; --bad-soft: #fbe5e3; --bar: #d6dde6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --panel: #1b2129; --text: #e4e8ee; --muted: #9aa5b4; --border: #2c3440;
+    --accent: #5aa9ec; --accent-soft: #1d3247; --ok: #4cc283; --ok-soft: #173326;
+    --warn: #e5a544; --warn-soft: #3a2c14; --bad: #ef7b70; --bad-soft: #3d1f1c; --bar: #2c3440;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c; --panel: #1b2129; --text: #e4e8ee; --muted: #9aa5b4; --border: #2c3440;
+  --accent: #5aa9ec; --accent-soft: #1d3247; --ok: #4cc283; --ok-soft: #173326;
+  --warn: #e5a544; --warn-soft: #3a2c14; --bad: #ef7b70; --bad-soft: #3d1f1c; --bar: #2c3440;
+}
+.viz { --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948; --s-other:#898781; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; }
+}
+:root[data-theme="dark"] .viz { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; }
+:root { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 17px; margin: 0; }
+header .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+button, select, input { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; }
+.crumbs { margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+.crumbs a { color: var(--accent); text-decoration: none; cursor: pointer; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.tile .v { font-size: 24px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .s { color: var(--muted); font-size: 12px; }
+section.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 18px; overflow: hidden; }
+section.card > h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+section.card > h2 .sub { font-weight: 400; color: var(--muted); font-size: 12px; }
+.body { padding: 12px 14px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--bg); position: sticky; top: 0; cursor: pointer; user-select: none; }
+td.num, th.num { text-align: right; }
+tbody tr.click { cursor: pointer; }
+tbody tr.click:hover { background: var(--accent-soft); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.info { background: var(--accent-soft); color: var(--accent); }
+.barwrap { display: flex; align-items: center; gap: 8px; min-width: 160px; }
+.bar { flex: 1; height: 8px; background: var(--bar); border-radius: 4px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+.bar.ok > i { background: var(--ok); }
+.muted { color: var(--muted); }
+.err { color: var(--bad); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; }
+.grid2 > section.card { margin-bottom: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.chip { border-radius: 16px; padding: 5px 12px; font-weight: 500; }
+.chip span { color: var(--muted); font-weight: 400; margin-left: 2px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.on span { color: #fff; opacity: .8; }
+.tile .v.err { color: var(--bad); }
+#tip { position: fixed; z-index: 50; max-width: 340px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 24px rgba(0,0,0,.25); display: none; white-space: normal; }
+#tip a, .note a { color: var(--accent); }
+#tip p { margin: 6px 0 0; } #tip ul { margin: 4px 0 0; padding-left: 18px; }
+details summary { cursor: pointer; color: var(--accent); }
+footer.disclaimer { max-width: 1400px; margin: 0 auto; padding: 0 24px 28px; color: var(--muted); font-size: 12px; text-align: center; }
+.readonly { background: var(--ok-soft); color: var(--text); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; margin-bottom: 12px; }
+/* charts */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); font-weight: 400; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.orgcharts { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; padding: 12px 14px 14px; }
+.orgchart { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 12px; cursor: pointer; }
+.orgchart:hover { border-color: var(--accent); }
+.orgchart h3 { margin: 0 0 2px; font-size: 13.5px; }
+.orgchart .s { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.hrow { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 12.5px; }
+.hrow.net { grid-template-columns: minmax(120px, 220px) 1fr 44px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.hrow.net:hover, .hrow.net.on { background: var(--accent-soft); }
+.hrow .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrow .val { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.track { height: 12px; }
+.hbar { display: flex; gap: 2px; height: 100%; border-radius: 0 4px 4px 0; overflow: hidden; min-width: 2px; }
+.hbar > span { display: block; height: 100%; min-width: 3px; }
+.hbar.empty { background: none; }
+.chartbody { padding: 10px 8px 12px; }
+.netpill { border-radius: 16px; padding: 4px 10px; background: var(--accent-soft); border-color: var(--accent); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.note { font-size: 12px; color: var(--muted); }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) { header, main { padding-left: 16px; padding-right: 16px; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cisco Meraki Licensing Viewer</h1>
+  <div class="controls">
+    <span id="status"></span>
+    <label>Auto-refresh
+      <select id="auto">
+        <option value="0">Off</option><option value="60">1 min</option>
+        <option value="300" selected>5 min</option><option value="900">15 min</option>
+      </select>
+    </label>
+    <label>Theme
+      <select id="theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </label>
+    <button id="keybtn">API key</button>
+    <button class="primary" id="refresh">Refresh</button>
+  </div>
+</header>
+<main id="app"></main>
+<footer class="disclaimer"><strong>Read-only:</strong> This tool only sends GET (read) requests to the Meraki Dashboard API. It never sends POST, PUT or DELETE requests, so it can't make any changes to your Meraki Dashboard.</footer>
+
+<script src="licensing-map.js"></script>
+<script>
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (a, b) => b ? (100 * a / b) : 0;
+const fmtPct = v => v.toFixed(1) + "%";
+const bar = (v, cls = "") => `<div class="barwrap"><div class="bar ${cls}"><i style="width:${Math.min(100, v)}%"></i></div><span>${fmtPct(v)}</span></div>`;
+const fmtDate = d => d ? new Date(d).toLocaleDateString() : "—";
+
+// ---------- API key (kept in this browser only; sent to the local server, which forwards it to Meraki) ----------
+const KEY_ITEM = "merakiApiKey";
+function getKey() {
+  try { return localStorage.getItem(KEY_ITEM) || sessionStorage.getItem(KEY_ITEM) || ""; } catch { return ""; }
+}
+function setKey(k, remember) {
+  try {
+    localStorage.removeItem(KEY_ITEM); sessionStorage.removeItem(KEY_ITEM);
+    if (k) (remember ? localStorage : sessionStorage).setItem(KEY_ITEM, k);
+  } catch {}
+}
+
+async function api(path) {
+  const key = getKey();
+  const r = await fetch("/api" + path, { headers: key ? { "X-Meraki-API-Key": key } : {} });
+  const txt = await r.text();
+  let body; try { body = JSON.parse(txt); } catch { body = txt; }
+  if (!r.ok) {
+    const msg = body && body.errors ? body.errors.join("; ") : `HTTP ${r.status}`;
+    const err = new Error(msg);
+    err.auth = r.status === 401;
+    throw err;
+  }
+  return body;
+}
+async function pool(items, n, fn) {
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
+  }));
+  return out;
+}
+
+// ---------- state ----------
+const state = { orgs: [], inv: {}, invErr: {}, detail: {}, loading: false, updated: null, sort: {} };
+
+function route() {
+  const m = location.hash.match(/org=([^&]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// ---------- data loading ----------
+async function loadOverview() {
+  state.orgs = await api("/organizations");
+  state.orgs.sort((a, b) => a.name.localeCompare(b.name));
+  render();
+  await pool(state.orgs, 4, async o => {
+    if (o.api && o.api.enabled === false) { state.invErr[o.id] = "API access disabled for this org"; return; }
+    try { state.inv[o.id] = await api(`/organizations/${o.id}/inventory/devices`); delete state.invErr[o.id]; }
+    catch (e) { state.invErr[o.id] = e.message; }
+    render();
+  });
+}
+
+async function loadOrg(id) {
+  const org = state.orgs.find(o => o.id === id) || await api(`/organizations/${id}`);
+  const model = org.licensing?.model || "unknown";
+  const d = { org, model, err: {} };
+  const tasks = {
+    inventory: () => api(`/organizations/${id}/inventory/devices`),
+    networks: () => api(`/organizations/${id}/networks`),
+    statuses: () => api(`/organizations/${id}/devices/statuses`),
+  };
+  if (model === "co-term") {
+    tasks.overview = () => api(`/organizations/${id}/licenses/overview`);
+    tasks.coterm = () => api(`/organizations/${id}/licensing/coterm/licenses`);
+  }
+  if (model === "per-device") { tasks.overview = () => api(`/organizations/${id}/licenses/overview`); tasks.licenses = () => api(`/organizations/${id}/licenses`); }
+  if (model === "subscription") {
+    tasks.subscriptions = () => api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
+    tasks.entitlements = () => api(`/administered/licensing/subscription/entitlements`);
+  }
+  await Promise.all(Object.entries(tasks).map(async ([k, f]) => {
+    try { d[k] = await f(); } catch (e) { d.err[k] = e.message; }
+  }));
+  if (d.inventory) state.inv[id] = d.inventory;
+  state.detail[id] = d;
+}
+
+async function refresh() {
+  if (state.loading || state.needKey) return;
+  state.loading = true; state.error = null; setStatus(true);
+  try {
+    const id = route();
+    if (!state.orgs.length || !id) await loadOverview();
+    if (id) await loadOrg(id);
+    state.updated = new Date();
+  } catch (e) {
+    if (e.auth) { state.needKey = true; state.keyError = "Meraki rejected that API key. Check it and try again."; }
+    else state.error = e.message;
+  } finally { state.loading = false; setStatus(false); render(); }
+}
+
+function setStatus(busy) {
+  $("#refresh").disabled = busy;
+  $("#status").innerHTML = busy ? `<span class="spinner"></span> Loading…`
+    : state.updated ? `Updated ${state.updated.toLocaleTimeString()}` : "";
+}
+
+// ---------- derived ----------
+function summarise(devs) {
+  const total = devs.length, deployed = devs.filter(d => d.networkId).length;
+  return { total, deployed, unassigned: total - deployed };
+}
+function familyOf(d) {
+  const c = classifyModel(d.model);
+  if (c.family !== "Other") return c.family;
+  return { appliance: "MX", switch: "MS", wireless: "MR", camera: "MV", sensor: "MT", cellularGateway: "MG", wirelessController: "WLC" }[d.productType] || (d.productType || "Other");
+}
+
+// ---------- rendering ----------
+function sortable(tableId, rows, cols, rowHtml, rowAttr) {
+  const s = state.sort[tableId] || {};
+  if (s.key) {
+    const col = cols.find(c => c.key === s.key);
+    rows = [...rows].sort((a, b) => {
+      const x = col.val(a), y = col.val(b);
+      return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * s.dir;
+    });
+  }
+  const head = cols.map(c => `<th class="${c.num ? "num" : ""}" data-t="${tableId}" data-k="${c.key}">${c.label}${s.key === c.key ? (s.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+  return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${rows.map(r => `<tr ${rowAttr ? rowAttr(r) : ""}>${rowHtml(r)}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">No rows</td></tr>`}</tbody></table></div>`;
+}
+
+function renderOverview() {
+  const loaded = state.orgs.filter(o => state.inv[o.id]);
+  const all = loaded.flatMap(o => state.inv[o.id]);
+  const tot = summarise(all);
+  const rows = state.orgs.map(o => {
+    const inv = state.inv[o.id];
+    const s = inv ? summarise(inv) : null;
+    return { o, s, err: state.invErr[o.id], share: s ? pct(s.deployed, tot.deployed) : -1, dep: s ? pct(s.deployed, s.total) : -1 };
+  });
+  const cols = [
+    { key: "name", label: "Organization", val: r => r.o.name },
+    { key: "id", label: "Org ID", val: r => r.o.id },
+    { key: "model", label: "Licensing model", val: r => r.o.licensing?.model || "" },
+    { key: "deployed", label: "Licensed devices", num: 1, val: r => r.s?.deployed ?? -1 },
+    { key: "total", label: "Inventory", num: 1, val: r => r.s?.total ?? -1 },
+    { key: "unassigned", label: "Unassigned", num: 1, val: r => r.s?.unassigned ?? -1 },
+    { key: "dep", label: "% deployed", val: r => r.dep },
+    { key: "share", label: "% of licensed hardware", val: r => r.share },
+  ];
+  const famList = devs => {
+    const c = {};
+    for (const d of devs) c[familyOf(d)] = (c[familyOf(d)] || 0) + 1;
+    return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(" · ") || "—";
+  };
+
+  return `
+  <div class="tiles">
+    <div class="tile"><div class="k">Organizations</div><div class="v">${state.orgs.length}</div><div class="s">${loaded.length} inventories loaded</div></div>
+    <div class="tile"><div class="k">Licensed devices</div><div class="v">${tot.deployed}</div><div class="s">In a network · ${famList(all.filter(d => d.networkId))}</div></div>
+    <div class="tile"><div class="k">Inventory</div><div class="v">${tot.total}</div><div class="s">${tot.deployed} in a network · ${tot.unassigned} unassigned</div></div>
+  </div>
+  <section class="card">
+    <h2>Organizations <span class="sub">Only devices in a network consume a license, so “% of licensed hardware” counts those alone. Click an org for detail.</span></h2>
+    ${sortable("orgs", rows, cols, r => `
+      <td><strong>${esc(r.o.name)}</strong></td>
+      <td class="mono">${esc(r.o.id)}</td>
+      <td>${modelPill(r.o.licensing?.model)}</td>
+      ${r.s ? `<td class="num"><strong>${r.s.deployed}</strong></td><td class="num">${r.s.total}</td><td class="num">${r.s.unassigned}</td>
+        <td>${bar(r.dep, "ok")}</td><td>${bar(r.share)}</td>`
+        : `<td colspan="5" class="${r.err ? "err" : "muted"}">${r.err ? esc(r.err) : '<span class="spinner"></span> loading inventory…'}</td>`}`,
+      r => `class="click" data-org="${esc(r.o.id)}"`)}
+  </section>
+  ${renderOrgCharts()}`;
+}
+
+// ---------- charts ----------
+const FAMILY_ORDER = ["MX", "MS", "MR", "CW", "MV", "MT", "MG", "WLC"];
+// Colour follows the family, never its rank: each family owns one fixed slot.
+const famColor = f => { const i = FAMILY_ORDER.indexOf(f); return i < 0 ? "var(--s-other)" : `var(--s${i + 1})`; };
+const famSort = (a, b) => {
+  const ia = FAMILY_ORDER.indexOf(a), ib = FAMILY_ORDER.indexOf(b);
+  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+};
+const legend = items => `<span class="legend">${items.map(([label, color]) => `<span><i style="background:${color}"></i>${esc(label)}</span>`).join("")}</span>`;
+// One horizontal stacked bar, scaled against `max`. segs: [{ n, color, tip }]
+function hbar(segs, max) {
+  const total = segs.reduce((a, x) => a + x.n, 0);
+  if (!total) return `<div class="track"></div>`;
+  return `<div class="track"><div class="hbar" style="width:${(100 * total / max).toFixed(2)}%">${segs.filter(x => x.n)
+    .map(x => `<span style="flex:${x.n};background:${x.color}" data-tip="${esc(x.tip)}"></span>`).join("")}</div></div>`;
+}
+
+function renderOrgCharts() {
+  const LIC = "var(--s1)", UN = "var(--s2)";
+  const cards = state.orgs.filter(o => state.inv[o.id]?.length).map(o => {
+    const by = {};
+    for (const d of state.inv[o.id]) { const f = familyOf(d); const r = by[f] ||= { lic: 0, un: 0 }; d.networkId ? r.lic++ : r.un++; }
+    const fams = Object.keys(by).sort(famSort);
+    const max = Math.max(...fams.map(f => by[f].lic + by[f].un));
+    const s = summarise(state.inv[o.id]);
+    const rows = fams.map(f => {
+      const r = by[f], t = r.lic + r.un;
+      return `<div class="hrow"><span class="lbl"><strong>${esc(f)}</strong></span>
+        ${hbar([{ n: r.lic, color: LIC, tip: `<strong>${esc(f)}</strong><br>Licensed (in a network): ${r.lic} of ${t} (${fmtPct(pct(r.lic, t))})` },
+                { n: r.un, color: UN, tip: `<strong>${esc(f)}</strong><br>Not in a network: ${r.un} of ${t} (${fmtPct(pct(r.un, t))})` }], max)}
+        <span class="val">${r.lic} / ${r.un}</span></div>`;
+    }).join("");
+    return `<div class="orgchart" data-org="${esc(o.id)}"><h3>${esc(o.name)}</h3>
+      <div class="s">${s.deployed} licensed · ${s.unassigned} not in a network · ${s.total} in inventory</div>${rows}</div>`;
+  }).join("");
+  if (!cards) return "";
+  return `<section class="card viz"><h2>Licensed vs not in a network, by product family
+    ${legend([["Licensed (in a network)", LIC], ["Not in a network", UN]])}</h2>
+    <div class="orgcharts">${cards}</div>
+    <div class="body note" style="padding-top:0">Numbers on the right are licensed / not in a network. Hover a bar for detail; click an organization to open it.</div></section>`;
+}
+
+function renderNetworkChart(id, all) {
+  const d = state.detail[id];
+  const fam = state.ffam || "";
+  const devs = fam ? all.filter(x => x.fam === fam) : all;
+  const rows = (d.networks || []).map(n => ({ id: n.id, name: n.name, devs: devs.filter(x => x.networkId === n.id) }));
+  // networks we don't have names for (e.g. no access) still count
+  for (const x of devs) if (x.networkId && !rows.some(r => r.id === x.networkId)) rows.push({ id: x.networkId, name: x.networkId, devs: devs.filter(y => y.networkId === x.networkId) });
+  rows.sort((a, b) => b.devs.length - a.devs.length || a.name.localeCompare(b.name));
+  const unassigned = devs.filter(x => !x.networkId);
+  if (unassigned.length) rows.push({ id: "__none__", name: "Not in a network", devs: unassigned, none: true });
+  if (!rows.length) return "";
+
+  const fams = [...new Set(devs.map(x => x.fam))].sort(famSort);
+  const max = Math.max(1, ...rows.map(r => r.devs.length));
+  const LIMIT = 15;
+  const shown = state.showAllNets || rows.length <= LIMIT + 1 ? rows : [...rows.slice(0, LIMIT), ...rows.filter(r => r.none)];
+  const html = shown.map(r => {
+    const by = {};
+    for (const x of r.devs) by[x.fam] = (by[x.fam] || 0) + 1;
+    const segs = Object.keys(by).sort(famSort).map(f => ({ n: by[f], color: famColor(f),
+      tip: `<strong>${esc(r.name)}</strong><br>${esc(f)}: ${by[f]} device${by[f] > 1 ? "s" : ""}${r.none ? " (not licensed)" : ""}` }));
+    return `<div class="hrow net ${state.fnet === r.id ? "on" : ""}" data-net="${esc(r.id)}" title="Show only this network's devices">
+      <span class="lbl ${r.none ? "muted" : ""}">${r.none ? "<em>Not in a network</em>" : esc(r.name)}</span>
+      ${hbar(segs, max)}<span class="val">${r.devs.length || '<span class="muted">0</span>'}</span></div>`;
+  }).join("");
+  const nNets = rows.filter(r => !r.none).length;
+  const more = shown.length < rows.length || state.showAllNets && rows.length > LIMIT + 1
+    ? `<button id="allnets" style="margin:6px 6px 0">${state.showAllNets ? "Show top 15" : `Show all ${nNets} networks`}</button>` : "";
+  return `<section class="card viz"><h2>Devices by network <span class="sub">${nNets} network${nNets === 1 ? "" : "s"}${fam ? ` · ${esc(fam)} only` : ""} · devices in a network are licensed</span>
+    ${legend(fams.map(f => [f, famColor(f)]))}</h2>
+    <div class="chartbody">${html}${more}</div></section>`;
+}
+
+function modelPill(m) {
+  if (!m) return `<span class="muted">—</span>`;
+  return `<span class="pill ${m === "subscription" ? "info" : m === "co-term" ? "ok" : "warn"}">${esc(m)}</span>`;
+}
+
+// ---------- license tier (Enterprise / Advanced for co-term, Essentials / Advantage for subscription) ----------
+function tierContext(d) {
+  const ctx = { appliance: null, mrAdv: false, msAdv: new Set(), expired: false, subTiers: {}, perDevice: {} };
+  if (Array.isArray(d.coterm)) {
+    let lic = d.coterm.filter(l => !l.invalidated && !l.expired);
+    if (!lic.length) { lic = d.coterm.filter(l => !l.invalidated); ctx.expired = lic.length > 0; }
+    lic.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+    for (const l of lic) {
+      for (const e of l.editions || []) if (e.productType === "appliance") ctx.appliance = e.edition; // latest wins
+      for (const c of l.counts || []) {
+        const m = String(c.model);
+        if (/^MR Advanced/i.test(m)) ctx.mrAdv = true;
+        const ms = m.match(/^(MS\S+) Advanced/i);
+        if (ms) ctx.msAdv.add(ms[1].toUpperCase());
+      }
+    }
+  }
+  if (d.model === "subscription") {
+    const catalog = Object.fromEntries((d.entitlements || []).map(e => [String(e.sku).toUpperCase(), e.featureTier]));
+    for (const s of d.subscriptions || []) {
+      if (s.status && !/active/i.test(s.status)) continue;
+      for (const e of s.entitlements || []) {
+        const sku = String(e.sku || "").toUpperCase();
+        const t = catalog[sku] || (/-A$/.test(sku) ? "advantage" : /-E$/.test(sku) ? "essentials" : null);
+        if (t) (ctx.subTiers[sku.replace(/-[AE]$/, "")] ||= new Set()).add(t);
+      }
+    }
+  }
+  for (const l of d.licenses || []) if (l.deviceSerial && l.state === "active") ctx.perDevice[l.deviceSerial] = l.licenseType;
+  return ctx;
+}
+
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+// Returns { tier, sku, note } for one device
+function deviceLicense(d, ctx, x) {
+  const r = baseLicense(d, ctx, x);
+  // Catalyst keeps its documented SKU; the DNA exemption only applies in some management modes
+  if (x.lic.catalyst) r.note = CATALYST_NOTE;
+  return r;
+}
+function baseLicense(d, ctx, x) {
+  const lic = x.lic;
+  if (lic.sku === "—") return { tier: "—", sku: lic.catalyst ? "No SKU listed" : "—", note: lic.note };
+  if (d.model === "subscription") {
+    const t = ctx.subTiers[lic.sku];
+    if (!t) return { tier: "No entitlement", sku: lic.sku, note: "Org holds no active entitlement for this SKU" };
+    if (t.size > 1) return { tier: "Essentials or Advantage", sku: `${lic.sku}-E / -A`, note: "Org holds both; tier is set per network" };
+    const tier = [...t][0];
+    return { tier: cap(tier), sku: `${lic.sku}-${tier === "advantage" ? "A" : "E"}` };
+  }
+  if (d.model === "per-device") {
+    const t = ctx.perDevice[x.serial];
+    return t ? { tier: toClass(t), sku: lic.sku, note: `License type: ${t}` } : { tier: "No license", sku: lic.sku };
+  }
+  // co-term: one edition per product family, org-wide
+  let edition = "Enterprise";
+  if (x.fam === "MX") edition = ctx.appliance || "Enterprise";
+  else if ((x.fam === "MR" || x.fam === "CW") && ctx.mrAdv) edition = "Advanced";
+  else if (x.fam === "MS" && ctx.msAdv.has(normaliseModel(x.model))) edition = "Advanced";
+  const notes = [];
+  if (toClass(edition) !== edition) notes.push(`Co-term edition: ${edition}`);
+  if (ctx.expired) notes.push("Co-term licenses expired");
+  return { tier: toClass(edition), sku: lic.sku, note: notes.join(" · ") };
+}
+// Co-term editions above Enterprise (Advanced, Advanced Security, SD-WAN Plus) are shown as Advantage
+function toClass(edition) {
+  const e = String(edition);
+  return /^(enterprise|ent)$/i.test(e) ? "Enterprise" : /essential/i.test(e) ? "Essentials" : /advan|security|sd-?wan|^sec$|^sdw$/i.test(e) ? "Advantage" : e;
+}
+function tierPill(t) {
+  const cls = /advan|sd-wan|security/i.test(t) ? "info" : /enterprise|essential/i.test(t) ? "ok" : /catalyst/i.test(t) ? "" : "warn";
+  return `<span class="pill ${cls}">${esc(t)}</span>`;
+}
+
+function renderOrg(id) {
+  const d = state.detail[id];
+  const org = d?.org || state.orgs.find(o => o.id === id) || { id, name: id };
+  const crumbs = `<div class="crumbs"><a data-home>All organizations</a> / <strong>${esc(org.name)}</strong> <span class="mono muted">(${esc(org.id)})</span></div>`;
+  if (!d) return crumbs + `<section class="card"><div class="body"><span class="spinner"></span> Loading organization…</div></section>`;
+  if (!d.inventory) return crumbs + `<section class="card"><div class="body err">Inventory failed: ${esc(d.err.inventory)}</div></section>`;
+
+  const all = orgDevices(id);
+  const fam = state.ffam || "";
+  const s = summarise(fam ? all.filter(x => x.fam === fam) : all);
+
+  // Product family filter chips (counts are org-wide so they never change under the filter)
+  const famCount = {};
+  for (const x of all) famCount[x.fam] = (famCount[x.fam] || 0) + 1;
+  const chips = [["", "All", all.length], ...Object.keys(famCount).sort().map(f => [f, f, famCount[f]])]
+    .map(([v, label, n]) => `<button class="chip ${fam === v ? "on" : ""}" data-fam="${esc(v)}">${esc(label)} <span>${n}</span></button>`).join("");
+
+  const allLicensed = state.orgs.reduce((n, o) => n + (state.inv[o.id]?.filter(x => x.networkId).length || 0), 0);
+
+  return crumbs + `
+  <div class="chips">${chips}</div>
+  <div class="tiles">
+    <div class="tile"><div class="k">Licensed devices</div><div class="v">${s.deployed}</div>
+      <div class="s">Deployed in a network${!fam && allLicensed ? ` · ${fmtPct(pct(s.deployed, allLicensed))} of all orgs' licensed devices` : ""}</div></div>
+    <div class="tile"><div class="k">Inventory</div><div class="v">${s.total}</div>
+      <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""} · ${s.unassigned} not in a network</div></div>
+    <div class="tile"><div class="k">Org license status</div><div class="v" style="font-size:16px">${modelPill(d.model)} ${d.overview ? statusPill(d.overview.status) : ""}</div>
+      <div class="s">${esc(licSummaryLine(d))}</div></div>
+  </div>
+
+  ${renderNetworkChart(id, all)}
+
+  <section class="card" id="devices"><h2>Devices <span class="sub" id="devcount"></span>
+    <span class="filters">
+      <input id="q" placeholder="Search serial, model, name, network" value="${esc(state.q || "")}" size="26">
+      ${networkSelect(id, all)}
+      ${modelSelect(all)}
+      <select id="fdep" title="Licensed status">${[["all", "All devices"], ["deployed", "Licensed (in a network)"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <button id="clearfilters" ${activeFilters(id).length ? "" : "hidden"}>Clear filters</button>
+      <button id="csv" class="primary" title="Exports exactly the rows shown, with the filters and sort you've chosen">Export CSV</button>
+    </span></h2>
+    <div id="devtable"></div>
+    <div class="body note">License class: <strong>Enterprise</strong> or <strong>Advantage</strong>. On co-term orgs, editions above Enterprise (Advanced, Advanced Security, SD-WAN Plus) show as Advantage — hover the class to see the original edition. Subscription orgs show the Essentials / Advantage tier of their active entitlements. License SKU follows the Meraki subscription licensing docs. <strong>DNA*</strong> (Catalyst C9200/C9300): per the MS doc footnote, no additional Meraki subscription license is needed in cloud monitoring or cloud management with configuration source: device; fully Meraki-managed, the listed SKU applies.</div>
+  </section>`;
+}
+
+function licSummaryLine(d) {
+  if (d.model === "subscription" && Array.isArray(d.subscriptions)) return `${d.subscriptions.length} subscription(s)`;
+  if (d.overview) return `Status: ${d.overview.status || "—"} · expires ${d.overview.expirationDate || "—"}`;
+  return "";
+}
+function statusPill(s) {
+  const v = String(s || "—");
+  return `<span class="pill ${/ok|active|online/i.test(v) ? "ok" : /expir|warn|pending|alert/i.test(v) ? "warn" : /—/.test(v) ? "info" : "bad"}">${esc(v)}</span>`;
+}
+
+function orgDevices(id) {
+  const d = state.detail[id];
+  const nets = Object.fromEntries((d.networks || []).map(n => [n.id, n.name]));
+  const stat = Object.fromEntries((d.statuses || []).map(s => [s.serial, s.status]));
+  const ctx = tierContext(d);
+  return d.inventory.map(x => {
+    const r = { ...x, lic: classifyModel(x.model), fam: familyOf(x), net: x.networkId ? (nets[x.networkId] || x.networkId) : "", st: stat[x.serial] || "" };
+    r.license = deviceLicense(d, ctx, r);
+    return r;
+  });
+}
+function filteredDevs(id) {
+  const q = (state.q || "").toLowerCase();
+  return orgDevices(id)
+    .filter(x => !state.ffam || x.fam === state.ffam)
+    .filter(x => !state.fnet || (state.fnet === "__none__" ? !x.networkId : x.networkId === state.fnet))
+    .filter(x => !state.fmodel || x.model === state.fmodel)
+    .filter(x => (state.fdep === "deployed" ? x.networkId : state.fdep === "unassigned" ? !x.networkId : true))
+    .filter(x => !q || [x.serial, x.model, x.name, x.net, x.license.sku, x.license.tier].join(" ").toLowerCase().includes(q));
+}
+const DEV_COLS = [
+  { key: "serial", label: "Device", val: r => r.serial },
+  { key: "model", label: "Model", val: r => r.model },
+  { key: "name", label: "Name", val: r => r.name || "" },
+  { key: "net", label: "Network", val: r => r.net },
+  { key: "dep", label: "Deployed", val: r => r.networkId ? 1 : 0 },
+  { key: "st", label: "Online", val: r => r.st },
+  { key: "tier", label: "License class", val: r => r.license.tier },
+  { key: "sku", label: "License SKU", val: r => r.license.sku },
+];
+// ---------- device filters ----------
+function networkSelect(id, all) {
+  const d = state.detail[id];
+  const famDevs = state.ffam ? all.filter(x => x.fam === state.ffam) : all;
+  const count = nid => famDevs.filter(x => nid === "__none__" ? !x.networkId : x.networkId === nid).length;
+  const nets = [...(d.networks || [])].sort((a, b) => a.name.localeCompare(b.name));
+  const opts = [["", "All networks"], ...nets.map(n => [n.id, `${n.name} (${count(n.id)})`]), ["__none__", `Not in a network (${count("__none__")})`]];
+  return `<select id="fnet" title="Network">${opts.map(([v, l]) => `<option value="${esc(v)}" ${state.fnet === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+}
+function modelSelect(all) {
+  const c = {};
+  for (const x of all) if (!state.ffam || x.fam === state.ffam) c[x.model] = (c[x.model] || 0) + 1;
+  const models = Object.keys(c).sort();
+  return `<select id="fmodel" title="Model"><option value="">All models</option>${models.map(m =>
+    `<option value="${esc(m)}" ${state.fmodel === m ? "selected" : ""}>${esc(m)} (${c[m]})</option>`).join("")}</select>`;
+}
+// Human-readable list of the filters in effect, e.g. ["Family: MR", "Network: Branch 1"]
+function activeFilters(id) {
+  const d = state.detail[id], out = [];
+  if (state.ffam) out.push(["Family", state.ffam]);
+  if (state.fnet) out.push(["Network", state.fnet === "__none__" ? "Not in a network" : ((d.networks || []).find(n => n.id === state.fnet)?.name || state.fnet)]);
+  if (state.fmodel) out.push(["Model", state.fmodel]);
+  if (state.fdep === "deployed") out.push(["Status", "Licensed"]);
+  if (state.fdep === "unassigned") out.push(["Status", "Not in a network"]);
+  if (state.q) out.push(["Search", state.q]);
+  return out;
+}
+function sortedDevs(id) {
+  const rows = filteredDevs(id), s = state.sort.devs;
+  if (!s?.key) return rows;
+  const col = DEV_COLS.find(c => c.key === s.key);
+  return [...rows].sort((a, b) => { const x = col.val(a), y = col.val(b); return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * s.dir; });
+}
+
+function renderDevTable(id) {
+  const el = $("#devtable"); if (!el) return;
+  const rows = filteredDevs(id);
+  const f = activeFilters(id);
+  $("#devcount").textContent = `${rows.length} of ${state.detail[id].inventory.length} devices${f.length ? " · " + f.map(([k, v]) => `${k}: ${v}`).join(" · ") : ""}`;
+  $("#csv").textContent = `Export CSV (${rows.length})`;
+  $("#csv").disabled = !rows.length;
+  $("#clearfilters").hidden = !f.length;
+  el.innerHTML = sortable("devs", rows, DEV_COLS, r => `
+    <td class="mono">${esc(r.serial)}</td><td class="mono">${esc(r.model)}</td><td>${esc(r.name)}</td>
+    <td>${r.net ? esc(r.net) : '<span class="muted">—</span>'}</td>
+    <td>${r.networkId ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no</span>'}</td>
+    <td>${r.st ? statusPill(r.st) : '<span class="muted">—</span>'}</td>
+    <td>${r.networkId ? `<span ${r.license.note ? `data-tip="${esc(esc(r.license.note))}" style="cursor:help"` : ""}>${tierPill(r.license.tier)}</span>` : '<span class="muted">not licensed</span>'}</td>
+    <td class="mono ${r.networkId ? "" : "muted"}" title="${esc(r.license.note || r.lic.note || "")}">${esc(r.license.sku)}${r.lic.inferred ? ' <span class="pill warn">inferred</span>' : ""}${r.lic.catalyst ? ` <a class="pill info" style="text-decoration:none" href="${MS_DOC}" target="_blank" rel="noopener" data-tip="${esc(dnaTip(r.license.sku))}">DNA*</a>` : ""}</td>`);
+}
+
+function dnaTip(sku) {
+  const uses = /^LIC-/.test(sku) ? `it consumes a ${sku} license like any MS switch` : "the MS doc lists no Meraki SKU for this model";
+  return `<strong>DNA* = Cisco DNA license</strong>` +
+    `<p>This Catalyst switch was bought with a Cisco DNA software license.</p>` +
+    `<p><strong>No Meraki license needed</strong> when it's in:</p>` +
+    `<ul><li>Cloud monitoring (monitor-only in Meraki Dashboard)</li><li>Cloud management with configuration source: device (config stays on the switch)</li></ul>` +
+    `<p><strong>License needed</strong> when it's fully managed by Meraki (config from Meraki Dashboard): ${uses}.</p>` +
+    `<p class="muted">Source: footnote (*) on <a href="${MS_DOC}" target="_blank" rel="noopener">Meraki's Subscription – MS Licensing page ↗</a>. The API doesn't report which mode a switch is in, so check it in Meraki Dashboard.</p>`;
+}
+const MS_DOC = "https://documentation.meraki.com/Platform_Management/Product_Information/Meraki_Licensing/Subscription_Licensing/Subscription_-_MS_Licensing";
+
+function exportCsv(id) {
+  const d = state.detail[id];
+  const rows = sortedDevs(id);
+  const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "licenseClass", "licenseSku", "skuInferred"];
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, r.networkId ? r.license.tier : "not licensed", r.license.sku, r.lic.inferred].map(q).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+  const tag = activeFilters(id).map(([, v]) => v).join("-").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80);
+  const day = new Date().toISOString().slice(0, 10);
+  a.download = `meraki-inventory-${d.org.name.replace(/[^A-Za-z0-9._-]+/g, "_")}${tag ? "-" + tag : ""}-${day}.csv`; a.click();
+}
+
+function renderKeyScreen() {
+  const has = !!getKey();
+  return `<section class="card" style="max-width:520px;margin:40px auto"><h2>Connect to Meraki</h2><div class="body">
+    <p style="margin-top:0">Enter your Meraki Dashboard API key to see the organizations it has access to.</p>
+    <div class="readonly"><strong>Read-only:</strong> This tool only sends GET (read) requests to the Meraki Dashboard API. It never sends POST, PUT or DELETE requests, so it can't make any changes to your Meraki Dashboard.</div>
+    <form id="keyform">
+      <input id="keyinput" type="password" autocomplete="off" placeholder="Meraki API key" style="width:100%" required>
+      <label class="note" style="display:block;margin:10px 0"><input type="checkbox" id="keyremember" checked> Remember on this computer</label>
+      ${state.keyError ? `<div class="err" style="margin-bottom:10px">${esc(state.keyError)}</div>` : ""}
+      <button class="primary" type="submit">Connect</button>
+      ${has ? '<button type="button" id="keycancel">Cancel</button> <button type="button" id="keyforget">Forget saved key</button>' : ""}
+    </form>
+    <p class="note">Your key stays on this computer. It's stored in this browser and sent only to this app running locally, which passes it to api.meraki.com. 
+    A read-only Meraki Dashboard admin is enough. <a href="https://developer.cisco.com/meraki/api-v1/authorization/" target="_blank" rel="noopener">How to create an API key ↗</a></p>
+  </div></section>`;
+}
+
+function render() {
+  const id = route();
+  const focus = document.activeElement?.id, caret = document.activeElement?.selectionStart;
+  $("#app").innerHTML = state.needKey ? renderKeyScreen()
+    : state.error && !state.orgs.length ? `<section class="card"><div class="body err">Failed to load: ${esc(state.error)}</div></section>`
+    : id ? renderOrg(id) : renderOverview();
+  if (id && state.detail[id]?.inventory) renderDevTable(id);
+  if (focus && $("#" + focus)) { $("#" + focus).focus(); if (caret != null) try { $("#" + focus).setSelectionRange(caret, caret); } catch {} }
+  setStatus(state.loading);
+}
+
+// ---------- events ----------
+document.addEventListener("click", e => {
+  const th = e.target.closest("th[data-t]");
+  if (th) {
+    const t = th.dataset.t, k = th.dataset.k, cur = state.sort[t];
+    state.sort[t] = { key: k, dir: cur?.key === k ? -cur.dir : 1 };
+    t === "devs" ? renderDevTable(route()) : render();
+    return;
+  }
+  const tr = e.target.closest("[data-org]");
+  if (tr) { location.hash = "org=" + encodeURIComponent(tr.dataset.org); return; }
+  const net = e.target.closest("[data-net]");
+  if (net) {
+    state.fnet = state.fnet === net.dataset.net ? "" : net.dataset.net;
+    render();
+    if (state.fnet) $("#devices")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (e.target.id === "clearfilters") { Object.assign(state, { ffam: "", fnet: "", fmodel: "", fdep: "all", q: "" }); render(); return; }
+  if (e.target.id === "allnets") { state.showAllNets = !state.showAllNets; render(); return; }
+  if (e.target.closest("[data-home]")) { location.hash = ""; return; }
+  const chip = e.target.closest("[data-fam]");
+  if (chip) {
+    state.ffam = chip.dataset.fam;
+    // drop a model filter that doesn't belong to the newly chosen family
+    if (state.fmodel && state.ffam && !orgDevices(route()).some(x => x.model === state.fmodel && x.fam === state.ffam)) state.fmodel = "";
+    render(); return;
+  }
+  if (e.target.id === "csv") exportCsv(route());
+});
+document.addEventListener("input", e => {
+  if (e.target.id === "q") { state.q = e.target.value; renderDevTable(route()); }
+});
+document.addEventListener("change", e => {
+  if (e.target.id === "fdep") { state.fdep = e.target.value; renderDevTable(route()); }
+  if (e.target.id === "fnet") { state.fnet = e.target.value; render(); }      // re-render so the network chart highlights it
+  if (e.target.id === "fmodel") { state.fmodel = e.target.value; renderDevTable(route()); }
+  if (e.target.id === "auto") schedule();
+});
+window.addEventListener("hashchange", () => {
+  state.q = ""; state.fdep = "all"; state.ffam = ""; state.fnet = ""; state.fmodel = ""; state.showAllNets = false;
+  render();
+  const id = route();
+  if (id) refresh();
+});
+$("#refresh").onclick = refresh;
+// Theme: Auto follows the computer's light/dark setting; Light/Dark override it and are remembered.
+function applyTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  $("#theme").value = t || "auto";
+}
+try { applyTheme(localStorage.getItem("theme") || "auto"); } catch { applyTheme("auto"); }
+$("#theme").onchange = e => {
+  applyTheme(e.target.value);
+  try { localStorage.setItem("theme", e.target.value); } catch {}
+};
+$("#keybtn").onclick =() => { state.needKey = true; state.keyError = ""; render(); };
+document.addEventListener("submit", e => {
+  if (e.target.id !== "keyform") return;
+  e.preventDefault();
+  setKey($("#keyinput").value.trim(), $("#keyremember").checked);
+  Object.assign(state, { needKey: false, keyError: "", error: null, orgs: [], inv: {}, invErr: {}, detail: {} });
+  location.hash = "";
+  refresh();
+});
+document.addEventListener("click", e => {
+  if (e.target.id === "keycancel") { state.needKey = false; render(); }
+  if (e.target.id === "keyforget") { setKey(""); state.keyError = ""; Object.assign(state, { orgs: [], inv: {}, invErr: {}, detail: {} }); render(); }
+});
+
+// Hover tooltips for [data-tip] (fixed-position so table scroll containers don't clip them)
+// Stays open while the pointer is on the tooltip, so links inside it can be clicked.
+const tip = document.body.appendChild(Object.assign(document.createElement("div"), { id: "tip" }));
+let hideTip;
+document.addEventListener("mouseover", e => {
+  clearTimeout(hideTip);
+  if (e.target.closest("#tip")) return;
+  const t = e.target.closest("[data-tip]");
+  if (!t) { hideTip = setTimeout(() => { tip.style.display = "none"; }, 300); return; }
+  tip.innerHTML = t.dataset.tip;
+  tip.style.display = "block";
+  const r = t.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
+  tip.style.top = (r.bottom + h + 8 > innerHeight ? r.top - h - 6 : r.bottom + 6) + "px";
+});
+addEventListener("scroll", () => { tip.style.display = "none"; }, true);
+
+let timer;
+function schedule() {
+  clearInterval(timer);
+  const s = +$("#auto").value;
+  if (s) timer = setInterval(refresh, s * 1000);
+}
+schedule();
+(async () => {
+  let cfg = {};
+  try { cfg = await (await fetch("/config")).json(); } catch {}
+  if (!cfg.hasDefaultKey && !getKey()) { state.needKey = true; render(); }
+  else refresh();
+})();
+</script>
+</body>
+</html>
