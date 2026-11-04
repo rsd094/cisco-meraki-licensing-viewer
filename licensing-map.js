@@ -116,10 +116,10 @@ function managementMode(dev) {
   const cfg = String(detail(/^cloud configuration$|configuration source/i) || "");
   const catalyst = !!detail(/^catalyst serial$/i) || /^(C9\d|IE-?\d|CW98)/.test(m);
   if (dev.productType === "wirelessController" || /^C?W?9800|^CW9800/.test(m))
-    return { mode: "monitored", label: "Device (aka monitoring)", consumes: false, note: "Catalyst 9800 wireless controller with config source: device (aka monitoring): it keeps managing its APs on-prem and sends telemetry to Dashboard. No Meraki license." };
+    return { mode: "monitored", label: "Device (monitoring)", consumes: false, note: "Catalyst 9800 wireless controller with config source: device (monitoring): it keeps managing its APs on-prem and sends telemetry to Dashboard. No Meraki license." };
   if (/monitor|device/i.test(cfg)) {
-    if (/^CW917/.test(m)) return { mode: "monitored", label: "Device (aka monitoring)", consumes: true, note: "Config source: device (aka monitoring), but Wi-Fi 7 APs consume a subscription license even so." };
-    return { mode: "monitored", label: "Device (aka monitoring)", consumes: false, note: `Config source: device (aka monitoring); the API reports "Cloud configuration: ${cfg}". Managed on-prem; Dashboard only receives telemetry, so no Meraki license is consumed. Moving it to config source: cloud would make it consume one.` };
+    if (/^CW917/.test(m)) return { mode: "monitored", label: "Device (monitoring)", consumes: true, note: "Config source: device (monitoring), but Wi-Fi 7 APs consume a subscription license even so." };
+    return { mode: "monitored", label: "Device (monitoring)", consumes: false, note: `Config source: device (monitoring); the API reports "Cloud configuration: ${cfg}". Managed on-prem; Dashboard only receives telemetry, so no Meraki license is consumed. Moving it to config source: cloud would make it consume one.` };
   }
   const offer = catalyst && !/-MR?$/i.test(String(dev.sku || dev.model)) && /^(C9[235]\d0|C91\d\d|CW916)/.test(m);
   return { mode: "managed", label: "Cloud", consumes: true,
