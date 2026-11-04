@@ -53,7 +53,8 @@ From a terminal you can also run `python3 server.py --open`, adding `--port 9000
 - `index.html`: the viewer.
 - `licensing-map.js`: maps each hardware model to its license for both licensing models:
   - **Subscription orgs:** the size-class SKU (e.g. LIC-MX-S, LIC-MS-100-S) and the Essentials / Advantage tier, from Meraki's Subscription licensing docs.
-  - **Co-term and per-device orgs:** the per-model SKU (e.g. LIC-MX67-SDW, LIC-MS130-CMPTA, LIC-MR-ADV) and the org's edition: MX Enterprise / Advanced Security / Secure SD-WAN Plus; MR and Wi-Fi 7 Enterprise / Advanced; MS130, MS150, MS390 and Catalyst Enterprise / Advanced. From Meraki's Co-Termination licensing docs. Co-term SKUs are shown without their term (add e.g. -1YR).
+  - **Co-term and per-device orgs:** the per-model SKU (e.g. LIC-MX67-SDW, LIC-MS130-CMPTA, LIC-MR-ADV) and the org's edition: MX and Cisco Secure Routers Enterprise / Advanced Security / Secure SD-WAN Plus; MR Enterprise / Advanced; MS130, MS150, MS390 and Catalyst 9200L-M / 9300-M Enterprise / Advanced. From Meraki's Co-Termination licensing docs and the Cisco Cloud-Managed Switching data sheet. Co-term SKUs are shown without their term (add e.g. -1YR).
+  - **Unified licensing (any org):** Wi-Fi 7 APs (LIC-CW), C9350 / C9550 / C9610 smart switches (LIC-CS-AC1 / LIC-CS-CO) and Cisco 8000 Secure Routers (LIC-CSWAN) with Essentials / Advantage tiers. In a co-term org, Wi-Fi 7 counts against the MR licenses and follows the MR edition.
 
   Edit it when new models ship. Mappings not confirmed in the docs are tagged **inferred**.
 - `server.py`: the local read-only server, using only the Python standard library.

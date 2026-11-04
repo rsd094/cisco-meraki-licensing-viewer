@@ -310,11 +310,12 @@ function cotermPool(counts) {
 }
 // Org-wide Advanced tiers, read from license row names ("MR Advanced", "MS390-48 Advanced", "MS130-CMPTA")
 function cotermAdvanced(names) {
-  const out = { mr: false, ms: false, z4: false };
+  const out = { mr: false, ms: false, z4: false, cns: false };
   for (const raw of names) {
     const k = String(raw).toUpperCase().trim();
     if (/^MR ADVANCED/.test(k)) out.mr = true;
     if (/^Z4C?\b.*(SEC|TELEWORKER)/.test(k)) out.z4 = true;
+    if (/^(C9[356]\d0|LIC-CS-).*(ADV|-A$)/.test(k)) out.cns = true;
     if (/^(MS1[35]0|MS390|C9[23]00)\S*\s+ADVANCED/.test(k) || TIERED_ROW.exec(k)?.[2] === "A") out.ms = true;
   }
   return out;
@@ -576,7 +577,7 @@ function tierContext(d) {
     }
   }
   const adv = cotermAdvanced(names);
-  ctx.mrAdv = adv.mr; ctx.msAdv = adv.ms; ctx.z4Sec = adv.z4;
+  ctx.mrAdv = adv.mr; ctx.msAdv = adv.ms; ctx.z4Sec = adv.z4; ctx.cnsAdv = adv.cns;
   if (d.model === "subscription") {
     const catalog = Object.fromEntries((d.entitlements || []).map(e => [String(e.sku).toUpperCase(), e.featureTier]));
     for (const s of d.subscriptions || []) {
@@ -631,10 +632,12 @@ function baseLicense(d, ctx, x) {
   } else if (co.line === "mx") ed = edition(ctx.appliance);
   // an Enterprise vMX can't be used in an Advanced Security or SD-WAN Plus org
   else if (co.line === "vmx") ed = edition(ctx.appliance).code === "ENT" ? ed : { name: "Advanced Security", code: "SEC" };
-  else if (co.line === "z4" && ctx.z4Sec) ed = { name: "Secure Teleworker", code: "SEC" }; else if ((co.line === "mr" && ctx.mrAdv) || (co.line === "ms" && ctx.msAdv)) ed = { name: "Advanced", code: "ADV" };
+  else if (co.line === "z4" && ctx.z4Sec) ed = { name: "Secure Teleworker", code: "SEC" };
+  // unified licensing (Wi-Fi 7, smart switches): Essentials / Advantage. Wi-Fi 7 follows the MR edition in co-term
+  else if (co.line === "cns") ed = co.advOnly || (co.key === "MR" ? ctx.mrAdv : ctx.cnsAdv) ? { name: "Advantage", code: "ADV" } : { name: "Essentials", code: "ESS" }; else if ((co.line === "mr" && ctx.mrAdv) || (co.line === "ms" && ctx.msAdv)) ed = { name: "Advanced", code: "ADV" };
   if (co.note) notes.push(co.note);
   if (ctx.expired) notes.push("Co-term licenses expired");
-  notes.push("Co-term SKU shown without its term (add e.g. -1YR, -3Y or -5Y)");
+  notes.push(co.line === "cns" ? "Unified SKU shown without its term" : "Co-term SKU shown without its term (add e.g. -1YR, -3Y or -5Y)");
   return { tier: ed.name, sku: co.sku(ed.code), note: notes.join(" · "), inferred: co.inferred };
 }
 function tierPill(t) {
@@ -691,7 +694,7 @@ function renderOrg(id) {
     <div id="devtable"></div>
     <div class="body note">${d.model === "subscription"
       ? "License class: the <strong>Essentials</strong> or <strong>Advantage</strong> tier of the org's active subscription entitlements. License SKU is the subscription SKU for the hardware's size class (e.g. LIC-MX-S-A)."
-      : `License class: the org's co-term edition for the device's product line. MX: <strong>Enterprise</strong>, <strong>Advanced Security</strong> or <strong>Secure SD-WAN Plus</strong>. MR and Wi-Fi 7: <strong>Enterprise</strong> or <strong>Advanced</strong>. MS130, MS150, MS390 and Catalyst switches: <strong>Enterprise</strong> or <strong>Advanced</strong>. Everything else: Enterprise. License SKU is the ${d.model === "per-device" ? "per-device" : "co-term"} SKU for that exact model and edition, without its term (add e.g. -1YR). <a href="${COTERM_DOCS}" target="_blank" rel="noopener">Co-term licensing docs ↗</a>`} <strong>DNA*</strong> (Catalyst C9200/C9300): per the MS doc footnote, no additional Meraki subscription license is needed in cloud monitoring or cloud management with configuration source: device; fully Meraki-managed, the listed SKU applies.</div>
+      : `License class: the org's co-term edition for the device's product line. MX: <strong>Enterprise</strong>, <strong>Advanced Security</strong> or <strong>Secure SD-WAN Plus</strong>. MR and Wi-Fi 7: <strong>Enterprise</strong> or <strong>Advanced</strong>. MS130, MS150, MS390 and Catalyst switches: <strong>Enterprise</strong> or <strong>Advanced</strong>. Wi-Fi 7 (CW917x) and C9350 / C9550 / C9610 smart switches use unified licensing: <strong>Essentials</strong> or <strong>Advantage</strong> (Wi-Fi 7 follows the MR edition). Cisco Secure Routers take the MX edition. Everything else: Enterprise. License SKU is the ${d.model === "per-device" ? "per-device" : "co-term"} SKU for that exact model and edition, without its term (add e.g. -1YR). <a href="${COTERM_DOCS}" target="_blank" rel="noopener">Co-term licensing docs ↗</a>`} <strong>DNA*</strong> (Catalyst C9200/C9300): per the MS doc footnote, no additional Meraki subscription license is needed in cloud monitoring or cloud management with configuration source: device; fully Meraki-managed, the listed SKU applies.</div>
   </section>`;
 }
 
