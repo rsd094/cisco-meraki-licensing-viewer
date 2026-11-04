@@ -288,20 +288,32 @@ function familyOf(d) {
 // Deployed devices are grouped by the license they need and compared with the licenses the org
 // actually holds. Co-term and subscription licenses are pooled, so a shortfall can't be pinned
 // to one device: every device in a short group is "over limit". Per-device licensing is exact.
+// A co-term org that Meraki reports as compliant is trusted outright: model matching only runs
+// when Meraki says the org is over its limits, and is then an estimate.
+function cotermCompliant(ov) {
+  return /^ok$/i.test(ov?.status || "") || ov?.compliance?.status?.key === "ok";
+}
 function cotermPool(counts) {
   const pool = {};
   for (const [k, n] of Object.entries(counts || {})) {
-    let key = String(k).toUpperCase().replace(/\s+(ENTERPRISE|ADVANCED.*)$/, "").replace(/^(MS\d+-\d+)[EA]$/, "$1");
-    if (key === "WIRELESS") key = "MR";
-    pool[key] = (pool[key] || 0) + n;
+    // one row can name several models, e.g. "MG41/MG41E"
+    for (const part of String(k).toUpperCase().split("/")) {
+      let key = part.trim().replace(/\s+(ENTERPRISE|ADVANCED.*)$/, "")
+        .replace(/^(MS\d+-\d+|MS130-CMPT)[EA]$/, "$1"); // edition suffix: MS390-48E, MS130-CMPTA
+      if (key === "WIRELESS") key = "MR";
+      pool[key] = (pool[key] || 0) + n;
+    }
   }
   return pool;
 }
+// MS130 compact switches share one license
+const MS130_COMPACT = /^MS130-(8|8P|8P-I|8X|12X)$/;
 function cotermKey(x, pool) {
   if (x.fam === "MR" || x.fam === "CW") return "MR";
   if (x.fam === "MV" || x.fam === "MT") return x.fam;
   const m = normaliseModel(x.model);
   if (m in pool) return m;
+  if (MS130_COMPACT.test(m)) return "MS130-CMPT";
   // a port-count license covers its variants, e.g. MS390-48 covers MS390-48UX
   if (/^(MS39|MS4|C9)/.test(m)) {
     const k = Object.keys(pool).filter(k => m.startsWith(k)).sort((a, b) => b.length - a.length)[0];
@@ -320,9 +332,11 @@ function coverage(id) {
   if (L.model === "co-term") {
     const pool = cotermPool(L.overview?.licensedDeviceCounts);
     const expired = /expired/i.test(L.overview?.status || "");
+    const compliant = !expired && cotermCompliant(L.overview);
     for (const x of dep) add(cotermKey(x, pool), x);
-    for (const g of Object.values(groups)) g.have = expired ? 0 : (pool[g.key] || 0);
+    for (const g of Object.values(groups)) g.have = expired ? 0 : compliant ? g.devs.length : (pool[g.key] || 0);
     if (expired) reason = `The org's co-term license expired${L.overview.expirationDate ? " on " + L.overview.expirationDate : ""}, so no device is covered.`;
+    else if (!compliant) reason = `Meraki reports this org as “${L.overview?.status || "not compliant"}”${L.overview?.compliance?.status?.description ? ": " + L.overview.compliance.status.description : ""} The license types below are matched by model, so treat them as an estimate and confirm in Meraki Dashboard (Organization → License info).`;
   } else if (L.model === "per-device") {
     exact = new Set((L.licenses || []).filter(l => l.deviceSerial && l.state === "active").map(l => l.deviceSerial));
     for (const x of dep) add(normaliseModel(x.model), x);
