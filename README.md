@@ -14,7 +14,7 @@ It's a read-only companion to Meraki Dashboard, not a replacement for it.
 
 ## Requirements
 
-- **Python 3.8 or newer.** Macs with the Xcode command-line tools already have it. Otherwise get it from <https://www.python.org/downloads/>. On Windows, tick **"Add python.exe to PATH"** during install.
+- **Python 3.8 or newer.** If it's missing, the launcher offers to install it for you: on Windows through Windows Package Manager (just for your account, no admin rights needed), and on a Mac through Apple's Command Line Tools installer. You can also get it from <https://www.python.org/downloads/>. On Windows, tick **"Add python.exe to PATH"** during install.
 - **A Meraki Dashboard API key.** A read-only admin is enough. See [how to create an API key](https://developer.cisco.com/meraki/api-v1/authorization/).
 
 ## Start it
@@ -41,7 +41,8 @@ From a terminal you can also run `python3 server.py --open`, adding `--port 9000
 |---|---|
 | "Meraki rejected that API key" | Check the key in Meraki Dashboard (My Profile → API access) and that API access is enabled for the org. |
 | Windows: nothing happens, or the window flashes and closes | Make sure you extracted the zip (right-click → **Extract All…**) and are running the launcher from the extracted folder, not from inside the zip. |
-| Windows: "Python 3 is required" | Install Python from <https://www.python.org/downloads/>, ticking **"Add python.exe to PATH"**. The Microsoft Store "python" shortcut alone isn't enough. |
+| Windows: Python was just installed but the viewer doesn't start | Close the launcher window and double-click it again. |
+| Windows: the Python install failed | Install Python from <https://www.python.org/downloads/>, ticking **"Add python.exe to PATH"**. The Microsoft Store "python" shortcut alone isn't enough. |
 | Windows: "Windows protected your PC" | Click **More info** → **Run anyway**. |
 | `CERTIFICATE_VERIFY_FAILED` on Mac | Open your Python folder in Applications and run **Install Certificates.command**. |
 | An org shows "API access disabled" | An org admin needs to enable API access under Organization → Settings. |
