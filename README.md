@@ -40,6 +40,9 @@ From a terminal you can also run `python3 server.py --open`, adding `--port 9000
 | Problem | Fix |
 |---|---|
 | "Meraki rejected that API key" | Check the key in Meraki Dashboard (My Profile → API access) and that API access is enabled for the org. |
+| Windows: nothing happens, or the window flashes and closes | Make sure you extracted the zip (right-click → **Extract All…**) and are running the launcher from the extracted folder, not from inside the zip. |
+| Windows: "Python 3 is required" | Install Python from <https://www.python.org/downloads/>, ticking **"Add python.exe to PATH"**. The Microsoft Store "python" shortcut alone isn't enough. |
+| Windows: "Windows protected your PC" | Click **More info** → **Run anyway**. |
 | `CERTIFICATE_VERIFY_FAILED` on Mac | Open your Python folder in Applications and run **Install Certificates.command**. |
 | An org shows "API access disabled" | An org admin needs to enable API access under Organization → Settings. |
 | The page looks out of date | Hard refresh with ⌘⇧R or Ctrl+Shift+R. |
