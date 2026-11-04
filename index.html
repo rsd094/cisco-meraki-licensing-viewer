@@ -88,6 +88,8 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .split { padding: 12px 14px 14px; }
 .split .track { height: 18px; }
 .split .legend { margin-top: 8px; }
+.depmark { font-size: 12px; color: var(--muted); border: 1px solid var(--muted); border-bottom: 0; border-radius: 4px 4px 0 0; padding: 2px 6px 4px; margin-bottom: 4px; white-space: nowrap; min-width: max-content; }
+.depmark strong { color: var(--text); }
 a.go, button.go { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); text-decoration: none; cursor: pointer; border-radius: 6px; display: inline-block; }
 .intro { font-size: 15px; margin: 0 0 6px; }
 .intro strong { color: var(--bad); }
@@ -453,8 +455,9 @@ function renderSplit(total, lic, unlic, unknown, none) {
     { n: none, color: SEG.none, tip: t("Not in a network (no license needed)", none, total, "inventory") },
   ];
   const items = [["Licensed", SEG.lic, lic], ["Unlicensed", SEG.unlic, unlic], ...(unknown ? [["Not checked", SEG.unknown, unknown]] : []), ["Not in a network", SEG.none, none]];
+  const dep = lic + unlic + unknown;
   return `<section class="card"><h2>Where your inventory stands <span class="sub">${total} devices</span></h2>
-    <div class="split">${hbar(segs, total)}
+    <div class="split">${dep ? `<div class="depmark" style="width:${(100 * dep / total).toFixed(2)}%">Deployed <strong>${dep}</strong> · ${fmtPct(pct(dep, total))} of inventory</div>` : ""}${hbar(segs, total)}
       <span class="legend">${items.map(([l, c, n]) => `<span><i style="background:${c}"></i>${l} <strong style="color:var(--text)">${n}</strong> (${fmtPct(pct(n, total))})</span>`).join("")}</span></div></section>`;
 }
 
@@ -488,21 +491,21 @@ function renderOrgCharts() {
     const sum = r => r.lic + r.unlic + r.unknown + r.none;
     const max = Math.max(...fams.map(f => sum(by[f])));
     const rows = fams.map(f => {
-      const r = by[f], t = sum(r), tip = (label, n) => `<strong>${esc(f)}</strong><br>${label}: ${n} of ${t} (${fmtPct(pct(n, t))})`;
+      const r = by[f], t = sum(r), dep = t - r.none, tip = (label, n) => `<strong>${esc(f)}</strong><br>${label}: ${n} of ${t} (${fmtPct(pct(n, t))})<br>Deployed: ${dep} of ${t}`;
       return `<div class="hrow"><span class="lbl"><strong>${esc(f)}</strong></span>
         ${hbar([{ n: r.lic, color: SEG.lic, tip: tip("Licensed", r.lic) }, { n: r.unlic, color: SEG.unlic, tip: tip("Unlicensed", r.unlic) },
                 { n: r.unknown, color: SEG.unknown, tip: tip("Deployed, license not checked", r.unknown) }, { n: r.none, color: SEG.none, tip: tip("Not in a network", r.none) }], max)}
-        <span class="val">${t}</span></div>`;
+        <span class="val" title="Deployed / total"><strong style="color:var(--text)">${dep}</strong> / ${t}</span></div>`;
     }).join("");
     const s = summarise(state.inv[o.id]);
     return `<div class="orgchart" data-org="${esc(o.id)}"><h3>${esc(o.name)}</h3>
-      <div class="s">${c ? `${c.licensed} licensed · <span class="${c.unlicensed ? "err" : ""}">${c.unlicensed} unlicensed</span>` : `${s.deployed} deployed`} · ${s.unassigned} not in a network</div>${rows}</div>`;
+      <div class="s"><strong style="color:var(--text)">${s.deployed} deployed</strong>${c ? ` (${c.licensed} licensed · <span class="${c.unlicensed ? "err" : ""}">${c.unlicensed} unlicensed</span>)` : ""} · ${s.unassigned} not in a network</div>${rows}</div>`;
   }).join("");
   if (!cards) return "";
   return `<section class="card"><h2>By product family
     ${legend([["Licensed", SEG.lic], ["Unlicensed", SEG.unlic], ["Not in a network", SEG.none]])}</h2>
     <div class="orgcharts">${cards}</div>
-    <div class="body note" style="padding-top:0">Numbers on the right are total devices. Hover a bar for detail; click an organization to open it.</div></section>`;
+    <div class="body note" style="padding-top:0">Numbers on the right are deployed / total devices. Hover a bar for detail; click an organization to open it.</div></section>`;
 }
 
 function renderNetworkChart(id, all) {
