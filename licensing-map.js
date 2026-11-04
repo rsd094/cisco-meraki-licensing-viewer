@@ -40,6 +40,8 @@ const LICENSE_CLASSES = [
   { cls: "Camera (multi-imager)", sku: "LIC-MV-MULTCAM", family: "MV", models: ["MV84X","MV44X"] },
   // ---- MT sensors (Subscription - MT Licensing) ----
   { cls: "Sensor", sku: "LIC-MT", family: "MT", models: ["MT10","MT11","MT12","MT14","MT15","MT20","MT30","MT40"] },
+  // ---- MG cellular gateways (Subscription - MG Licensing) ----
+  { cls: "Cellular gateway", sku: "LIC-MG", family: "MG", models: ["MG21","MG21E","MG41","MG41E","MG51","MG51E","MG52","MG52E"] },
 ];
 
 // MS doc footnote (*): applies only in cloud monitoring or config-source-device mode;
@@ -77,8 +79,59 @@ function classifyModel(model) {
   }
   if (/^C9800/.test(m)) return inf("Catalyst WLC", "—", "WLC", "Catalyst 9800 WLC — outside the referenced docs");
   if (/^C91\d\d/.test(m)) return inf("Catalyst AP (via WLC)", "—", "MR", "Catalyst AP behind a 9800 WLC — outside the referenced docs");
-  if (/^MG/.test(m)) return inf("Cellular (MG)", "LIC-MG", "MG", "MG — outside the referenced MX/MS/MR/Wi-Fi 7 docs");
+  if (/^MG/.test(m)) return inf("Cellular gateway", "LIC-MG", "MG");
   if (/^MV/.test(m)) return inf("Camera (MV)", "LIC-MV", "MV", "MV — outside the referenced docs");
   if (/^MT/.test(m)) return inf("Sensor (MT)", "LIC-MT", "MT", "MT — outside the referenced docs");
   return { cls: "Unmapped", sku: "—", family: "Other", inferred: true, note: "No matching license class in the referenced docs" };
+}
+
+// ---------- Co-termination licensing ----------
+// Co-term (and per-device) licenses are per hardware model, not per size class, and the edition
+// is set org-wide per product line. Sources: Meraki docs "Co-Termination Licensing",
+// "Meraki MR License Guide", "MX/Z Security and SD-WAN Licensing", MS390 and Catalyst 9300-M
+// datasheets. SKUs are shown without the term suffix (-1YR, -3Y, ...), which varies by product.
+//   line "mx"  : MX edition Enterprise (ENT) / Advanced Security (SEC) / Secure SD-WAN Plus (SDW)
+//   line "vmx" : vMX Enterprise (ENT) / Advanced Security (SEC)
+//   line "z4"  : Z4 Enterprise (ENT) / Secure Teleworker (SEC)
+//   line "mr"  : MR Enterprise (LIC-ENT) / MR Advanced (LIC-MR-ADV), model-agnostic, Wi-Fi 7 included
+//   line "ms"  : MS130, MS150, MS390, Catalyst C9300-M / C9200L-M: Enterprise / Advanced, one tier per org
+// `key` is the license row the device counts against (e.g. MS130-8X counts against MS130-CMPT).
+const MS130_COMPACT = /^MS130R?-(8|8P|8P-I|8X|12X)$/;
+const COTERM_DOCS = "https://documentation.meraki.com/Platform_Management/Product_Information/Meraki_Licensing/Co-Termination_Licensing";
+function cotermLicense(model, family) {
+  const m = normaliseModel(model);
+  const r = (key, line, sku, note, inferred) => ({ key, line, sku, note: note || "", inferred: !!inferred });
+  const tiered = (key, ent, adv, note, inferred) => r(key, "ms", code => code === "ADV" ? adv : ent, note, inferred);
+  let x;
+  if (/^C9800/.test(m)) return r(m, null, null, "Catalyst 9800 wireless controller: not licensed through Meraki co-term");
+  if (/^C91\d\d/.test(m)) return r(m, null, null, "Catalyst AP managed by a 9800 controller: not licensed through Meraki co-term");
+  if (family === "MR" || family === "CW" || /^(MR\d|CW91[67])/.test(m))
+    return r("MR", "mr", code => code === "ADV" ? "LIC-MR-ADV" : "LIC-ENT",
+      /^CW917/.test(m) ? "Wi-Fi 7 APs use MR licenses in a co-term org" : "MR licenses are model-agnostic");
+  if (/^MV/.test(m)) return r("MV", null, () => "LIC-MV");
+  if (/^MT/.test(m)) return r("MT", null, () => "LIC-MT");
+  if ((x = m.match(/^VMX-?(S|M|L|XL)$/))) return r(`VMX-${x[1]}`, "vmx", code => `LIC-VMX-${x[1]}-${code === "ENT" ? "ENT" : "SEC"}`);
+  if (/^VMX100$/.test(m)) return r("VMX100", null, () => "LIC-VMX100");
+  if (/^MX\d/.test(m)) return r(m, "mx", code => `LIC-${m}-${code}`, "Each MX model has its own license, e.g. an MX64 license won't cover an MX64W");
+  if (/^Z4C?$/.test(m)) return r(m, "z4", code => `LIC-${m}-${code === "ENT" ? "ENT" : "SEC"}`);
+  if (/^Z\d/.test(m)) return r(m, null, () => `LIC-${m}-ENT`, "Z1/Z3 only take Enterprise licenses");
+  if ((x = m.match(/^MG(\d+)E?$/))) return r(`MG${x[1]}`, null, () => `LIC-MG${x[1]}-ENT`);
+  if (MS130_COMPACT.test(m)) return tiered("MS130-CMPT", "LIC-MS130-CMPT", "LIC-MS130-CMPTA", "One license covers the MS130 compact models (8, 8P, 8P-I, 8X, 12X)");
+  if ((x = m.match(/^(MS1[35]0)R?-(\d+)/))) return tiered(`${x[1]}-${x[2]}`, `LIC-${x[1]}-${x[2]}`, `LIC-${x[1]}-${x[2]}A`, `One license per port count (${x[1]}-${x[2]})`);
+  if ((x = m.match(/^MS390-(\d+)/))) return tiered(`MS390-${x[1]}`, `LIC-MS390-${x[1]}E`, `LIC-MS390-${x[1]}A`, `One license per port count (MS390-${x[1]})`);
+  if ((x = m.match(/^C9300[LX]?M?-(\d+)/))) {
+    const p = +x[1] <= 24 ? 24 : 48;
+    return tiered(`C9300-${p}`, `LIC-C9300-${p}E`, `LIC-C9300-${p}A`, `One license covers C9300, C9300L and C9300X ${p}-port models`);
+  }
+  if ((x = m.match(/^C9200L-(\d+)/))) {
+    const p = +x[1] <= 24 ? 24 : 48;
+    return tiered(`C9200L-${p}`, `LIC-C9200L-${p}E`, `LIC-C9200L-${p}A`, "SKU follows the C9300-M pattern; not listed in the docs read", true);
+  }
+  if (/^C9200CX/.test(m)) return r(m, null, null, "No co-term license documented for C9200CX");
+  if (/^MS\d/.test(m)) return r(m, null, () => `LIC-${m}`, "Each MS model has its own license, e.g. MS220-8 and MS220-8P differ");
+  if (/^C8\d{3}/.test(m)) {
+    const key = m.replace(/-G2.*$/, ""); // C8121-G2-MX counts against the "C8121" license row
+    return r(key, null, null, `Cisco Secure Router: counts against the ${key} license row; SKU not documented`);
+  }
+  return r(m, null, null, "No co-term license documented for this model");
 }

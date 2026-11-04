@@ -293,33 +293,31 @@ function familyOf(d) {
 function cotermCompliant(ov) {
   return /^ok$/i.test(ov?.status || "") || ov?.compliance?.status?.key === "ok";
 }
+// Tiered licenses carry an edition suffix in their row name: MS390-48E, MS130-CMPTA, C9300-24A
+const TIERED_ROW = /^(MS1[35]0-(?:\d+|CMPT)|MS390-\d+|C9300-\d+|C9200L-\d+)([EA])$/;
 function cotermPool(counts) {
   const pool = {};
   for (const [k, n] of Object.entries(counts || {})) {
     // one row can name several models, e.g. "MG41/MG41E"
-    for (const part of String(k).toUpperCase().split("/")) {
-      let key = part.trim().replace(/\s+(ENTERPRISE|ADVANCED.*)$/, "")
-        .replace(/^(MS\d+-\d+|MS130-CMPT)[EA]$/, "$1"); // edition suffix: MS390-48E, MS130-CMPTA
+    const keys = new Set(String(k).toUpperCase().split("/").map(part => {
+      let key = part.trim().replace(/\s+(ENTERPRISE|ADVANCED.*)$/, "").replace(TIERED_ROW, "$1");
       if (key === "WIRELESS") key = "MR";
-      pool[key] = (pool[key] || 0) + n;
-    }
+      return key.replace(/^(MG\d+)E$/, "$1"); // MG41E shares the MG41 license
+    }));
+    for (const key of keys) pool[key] = (pool[key] || 0) + n;
   }
   return pool;
 }
-// MS130 compact switches share one license
-const MS130_COMPACT = /^MS130-(8|8P|8P-I|8X|12X)$/;
-function cotermKey(x, pool) {
-  if (x.fam === "MR" || x.fam === "CW") return "MR";
-  if (x.fam === "MV" || x.fam === "MT") return x.fam;
-  const m = normaliseModel(x.model);
-  if (m in pool) return m;
-  if (MS130_COMPACT.test(m)) return "MS130-CMPT";
-  // a port-count license covers its variants, e.g. MS390-48 covers MS390-48UX
-  if (/^(MS39|MS4|C9)/.test(m)) {
-    const k = Object.keys(pool).filter(k => m.startsWith(k)).sort((a, b) => b.length - a.length)[0];
-    if (k) return k;
+// Org-wide Advanced tiers, read from license row names ("MR Advanced", "MS390-48 Advanced", "MS130-CMPTA")
+function cotermAdvanced(names) {
+  const out = { mr: false, ms: false, z4: false };
+  for (const raw of names) {
+    const k = String(raw).toUpperCase().trim();
+    if (/^MR ADVANCED/.test(k)) out.mr = true;
+    if (/^Z4C?\b.*(SEC|TELEWORKER)/.test(k)) out.z4 = true;
+    if (/^(MS1[35]0|MS390|C9[23]00)\S*\s+ADVANCED/.test(k) || TIERED_ROW.exec(k)?.[2] === "A") out.ms = true;
   }
-  return m;
+  return out;
 }
 function coverage(id) {
   const inv = state.inv[id], L = state.lic[id];
@@ -333,7 +331,7 @@ function coverage(id) {
     const pool = cotermPool(L.overview?.licensedDeviceCounts);
     const expired = /expired/i.test(L.overview?.status || "");
     const compliant = !expired && cotermCompliant(L.overview);
-    for (const x of dep) add(cotermKey(x, pool), x);
+    for (const x of dep) add(cotermLicense(x.model, x.fam).key, x);
     for (const g of Object.values(groups)) g.have = expired ? 0 : compliant ? g.devs.length : (pool[g.key] || 0);
     if (expired) reason = `The org's co-term license expired${L.overview.expirationDate ? " on " + L.overview.expirationDate : ""}, so no device is covered.`;
     else if (!compliant) reason = `Meraki reports this org as “${L.overview?.status || "not compliant"}”${L.overview?.compliance?.status?.description ? ": " + L.overview.compliance.status.description : ""} The license types below are matched by model, so treat them as an estimate and confirm in Meraki Dashboard (Organization → License info).`;
@@ -561,23 +559,24 @@ function modelPill(m) {
   return `<span class="pill ${m === "subscription" ? "info" : m === "co-term" ? "ok" : "warn"}">${esc(m)}</span>`;
 }
 
-// ---------- license tier (Enterprise / Advanced for co-term, Essentials / Advantage for subscription) ----------
+// ---------- license edition and SKU ----------
+// Co-term: editions are org-wide per product line (MX: Enterprise / Advanced Security / Secure SD-WAN
+// Plus; MR: Enterprise / Advanced; MS130, MS150, MS390, Catalyst: Enterprise / Advanced) and SKUs are
+// per model (licensing-map.js cotermLicense). Subscription: Essentials / Advantage per entitlement SKU.
 function tierContext(d) {
-  const ctx = { appliance: null, mrAdv: false, msAdv: new Set(), expired: false, subTiers: {}, perDevice: {} };
+  const ctx = { appliance: null, mrAdv: false, msAdv: false, expired: false, subTiers: {}, perDevice: {} };
+  const names = Object.keys(d.overview?.licensedDeviceCounts || {});
   if (Array.isArray(d.coterm)) {
     let lic = d.coterm.filter(l => !l.invalidated && !l.expired);
     if (!lic.length) { lic = d.coterm.filter(l => !l.invalidated); ctx.expired = lic.length > 0; }
     lic.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
     for (const l of lic) {
       for (const e of l.editions || []) if (e.productType === "appliance") ctx.appliance = e.edition; // latest wins
-      for (const c of l.counts || []) {
-        const m = String(c.model);
-        if (/^MR Advanced/i.test(m)) ctx.mrAdv = true;
-        const ms = m.match(/^(MS\S+) Advanced/i);
-        if (ms) ctx.msAdv.add(ms[1].toUpperCase());
-      }
+      for (const c of l.counts || []) names.push(c.model);
     }
   }
+  const adv = cotermAdvanced(names);
+  ctx.mrAdv = adv.mr; ctx.msAdv = adv.ms; ctx.z4Sec = adv.z4;
   if (d.model === "subscription") {
     const catalog = Object.fromEntries((d.entitlements || []).map(e => [String(e.sku).toUpperCase(), e.featureTier]));
     for (const s of d.subscriptions || []) {
@@ -594,44 +593,52 @@ function tierContext(d) {
 }
 
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+// Edition name and SKU code from an edition string or license type ("SD-WAN", "Advanced Security", "SEC", ...)
+function edition(e) {
+  const v = String(e || "");
+  if (/sd-?wan|^sdw/i.test(v)) return { name: "Secure SD-WAN Plus", code: "SDW" };
+  if (/security|^sec/i.test(v)) return { name: "Advanced Security", code: "SEC" };
+  if (/advan|^adv/i.test(v)) return { name: "Advanced", code: "ADV" };
+  return { name: "Enterprise", code: "ENT" };
+}
 // Returns { tier, sku, note } for one device
 function deviceLicense(d, ctx, x) {
   const r = baseLicense(d, ctx, x);
   // Catalyst keeps its documented SKU; the DNA exemption only applies in some management modes
-  if (x.lic.catalyst) r.note = CATALYST_NOTE;
+  if (x.lic.catalyst) r.note = [r.note, CATALYST_NOTE].filter(Boolean).join(" · ");
   return r;
 }
 function baseLicense(d, ctx, x) {
   const lic = x.lic;
-  if (lic.sku === "—") return { tier: "—", sku: lic.catalyst ? "No SKU listed" : "—", note: lic.note };
   if (d.model === "subscription") {
+    if (lic.sku === "—") return { tier: "—", sku: lic.catalyst ? "No SKU listed" : "—", note: lic.note };
     const t = ctx.subTiers[lic.sku];
     if (!t) return { tier: "No entitlement", sku: lic.sku, note: "Org holds no active entitlement for this SKU" };
     if (t.size > 1) return { tier: "Essentials or Advantage", sku: `${lic.sku}-E / -A`, note: "Org holds both; tier is set per network" };
     const tier = [...t][0];
     return { tier: cap(tier), sku: `${lic.sku}-${tier === "advantage" ? "A" : "E"}` };
   }
+  // co-term and per-device both use per-model licenses
+  const co = cotermLicense(x.model, x.fam);
+  if (!co.sku) return { tier: "—", sku: "—", note: co.note, inferred: co.inferred };
+  let ed = { name: "Enterprise", code: "ENT" };
+  const notes = [];
   if (d.model === "per-device") {
     const t = ctx.perDevice[x.serial];
-    return t ? { tier: toClass(t), sku: lic.sku, note: `License type: ${t}` } : { tier: "No license", sku: lic.sku };
-  }
-  // co-term: one edition per product family, org-wide
-  let edition = "Enterprise";
-  if (x.fam === "MX") edition = ctx.appliance || "Enterprise";
-  else if ((x.fam === "MR" || x.fam === "CW") && ctx.mrAdv) edition = "Advanced";
-  else if (x.fam === "MS" && ctx.msAdv.has(normaliseModel(x.model))) edition = "Advanced";
-  const notes = [];
-  if (toClass(edition) !== edition) notes.push(`Co-term edition: ${edition}`);
+    if (!t) return { tier: "No license", sku: co.sku("ENT"), note: co.note, inferred: co.inferred };
+    ed = edition(t);
+    notes.push(`License type: ${t}`);
+  } else if (co.line === "mx") ed = edition(ctx.appliance);
+  // an Enterprise vMX can't be used in an Advanced Security or SD-WAN Plus org
+  else if (co.line === "vmx") ed = edition(ctx.appliance).code === "ENT" ? ed : { name: "Advanced Security", code: "SEC" };
+  else if (co.line === "z4" && ctx.z4Sec) ed = { name: "Secure Teleworker", code: "SEC" }; else if ((co.line === "mr" && ctx.mrAdv) || (co.line === "ms" && ctx.msAdv)) ed = { name: "Advanced", code: "ADV" };
+  if (co.note) notes.push(co.note);
   if (ctx.expired) notes.push("Co-term licenses expired");
-  return { tier: toClass(edition), sku: lic.sku, note: notes.join(" · ") };
-}
-// Co-term editions above Enterprise (Advanced, Advanced Security, SD-WAN Plus) are shown as Advantage
-function toClass(edition) {
-  const e = String(edition);
-  return /^(enterprise|ent)$/i.test(e) ? "Enterprise" : /essential/i.test(e) ? "Essentials" : /advan|security|sd-?wan|^sec$|^sdw$/i.test(e) ? "Advantage" : e;
+  notes.push("Co-term SKU shown without its term (add e.g. -1YR, -3Y or -5Y)");
+  return { tier: ed.name, sku: co.sku(ed.code), note: notes.join(" · "), inferred: co.inferred };
 }
 function tierPill(t) {
-  const cls = /advan|sd-wan|security/i.test(t) ? "info" : /enterprise|essential/i.test(t) ? "ok" : /catalyst/i.test(t) ? "" : "warn";
+  const cls = /advan|sd-wan|security|teleworker/i.test(t) ? "info" : /enterprise|essential/i.test(t) ? "ok" : /catalyst/i.test(t) ? "" : "warn";
   return `<span class="pill ${cls}">${esc(t)}</span>`;
 }
 
@@ -682,7 +689,9 @@ function renderOrg(id) {
       <button id="csv" class="primary" title="Exports exactly the rows shown, with the filters and sort you've chosen">Export CSV</button>
     </span></h2>
     <div id="devtable"></div>
-    <div class="body note">License class: <strong>Enterprise</strong> or <strong>Advantage</strong>. On co-term orgs, editions above Enterprise (Advanced, Advanced Security, SD-WAN Plus) show as Advantage — hover the class to see the original edition. Subscription orgs show the Essentials / Advantage tier of their active entitlements. License SKU follows the Meraki subscription licensing docs. <strong>DNA*</strong> (Catalyst C9200/C9300): per the MS doc footnote, no additional Meraki subscription license is needed in cloud monitoring or cloud management with configuration source: device; fully Meraki-managed, the listed SKU applies.</div>
+    <div class="body note">${d.model === "subscription"
+      ? "License class: the <strong>Essentials</strong> or <strong>Advantage</strong> tier of the org's active subscription entitlements. License SKU is the subscription SKU for the hardware's size class (e.g. LIC-MX-S-A)."
+      : `License class: the org's co-term edition for the device's product line. MX: <strong>Enterprise</strong>, <strong>Advanced Security</strong> or <strong>Secure SD-WAN Plus</strong>. MR and Wi-Fi 7: <strong>Enterprise</strong> or <strong>Advanced</strong>. MS130, MS150, MS390 and Catalyst switches: <strong>Enterprise</strong> or <strong>Advanced</strong>. Everything else: Enterprise. License SKU is the ${d.model === "per-device" ? "per-device" : "co-term"} SKU for that exact model and edition, without its term (add e.g. -1YR). <a href="${COTERM_DOCS}" target="_blank" rel="noopener">Co-term licensing docs ↗</a>`} <strong>DNA*</strong> (Catalyst C9200/C9300): per the MS doc footnote, no additional Meraki subscription license is needed in cloud monitoring or cloud management with configuration source: device; fully Meraki-managed, the listed SKU applies.</div>
   </section>`;
 }
 
@@ -839,7 +848,7 @@ function renderDevTable(id) {
     <td>${r.st ? statusPill(r.st) : '<span class="muted">—</span>'}</td>
     <td>${r.networkId ? covPill(r.cov) : '<span class="muted">—</span>'}</td>
     <td>${r.networkId ? `<span ${r.license.note ? `data-tip="${esc(esc(r.license.note))}" style="cursor:help"` : ""}>${tierPill(r.license.tier)}</span>` : '<span class="muted">not licensed</span>'}</td>
-    <td class="mono ${r.networkId ? "" : "muted"}" title="${esc(r.license.note || r.lic.note || "")}">${esc(r.license.sku)}${r.lic.inferred ? ' <span class="pill warn">inferred</span>' : ""}${r.lic.catalyst ? ` <a class="pill info" style="text-decoration:none" href="${MS_DOC}" target="_blank" rel="noopener" data-tip="${esc(dnaTip(r.license.sku))}">DNA*</a>` : ""}</td>`);
+    <td class="mono ${r.networkId ? "" : "muted"}" title="${esc(r.license.note || r.lic.note || "")}">${esc(r.license.sku)}${(r.license.inferred ?? r.lic.inferred) ? ' <span class="pill warn">inferred</span>' : ""}${r.lic.catalyst ? ` <a class="pill info" style="text-decoration:none" href="${MS_DOC}" target="_blank" rel="noopener" data-tip="${esc(dnaTip(r.license.sku))}">DNA*</a>` : ""}</td>`);
 }
 
 function dnaTip(sku) {
@@ -858,7 +867,7 @@ function exportCsv(id) {
   const rows = sortedDevs(id);
   const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "licensed", "licenseClass", "licenseSku", "skuInferred"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, COV_LABEL[r.cov] || "", r.networkId ? r.license.tier : "not licensed", r.license.sku, r.lic.inferred].map(q).join(",")));
+  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, COV_LABEL[r.cov] || "", r.networkId ? r.license.tier : "not licensed", r.license.sku, r.license.inferred ?? r.lic.inferred].map(q).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
   const tag = activeFilters(id).map(([, v]) => v).join("-").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80);
