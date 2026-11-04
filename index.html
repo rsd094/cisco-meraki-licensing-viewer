@@ -80,6 +80,11 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .chip.on span { color: #fff; opacity: .8; }
 .tile .v.err { color: var(--bad); }
 .tile.alert { border-color: var(--bad); }
+.tile.click { cursor: pointer; transition: border-color .15s; }
+.tile.click:hover { border-color: var(--accent); }
+.tile.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+a.tilelink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+a.tilelink.on { font-weight: 600; }
 .tile.alert .v { color: var(--bad); }
 .tile .go { margin-top: 8px; font-size: 12.5px; padding: 4px 10px; }
 .tile .k .pc { text-transform: none; letter-spacing: 0; }
@@ -657,6 +662,11 @@ function tierPill(t) {
   return `<span class="pill ${cls}">${esc(t)}</span>`;
 }
 
+// Org-page tiles double as filters for the network chart's devices table below them
+const TILE_FILTER = { all: { fdep: "all", fsrc: "" }, deployed: { fdep: "deployed", fsrc: "" }, licensed: { fdep: "licensed", fsrc: "" },
+  unlicensed: { fdep: "unlicensed", fsrc: "" }, monitoring: { fdep: "all", fsrc: "device" } };
+const tileOn = k => (state.fdep || "all") === TILE_FILTER[k].fdep && (state.fsrc || "") === TILE_FILTER[k].fsrc;
+const tileCls = k => `tile click${tileOn(k) && k !== "all" ? " on" : ""}`;
 function renderOrg(id) {
   const d = state.detail[id];
   const org = d?.org || state.orgs.find(o => o.id === id) || { id, name: id };
@@ -679,13 +689,13 @@ function renderOrg(id) {
   return crumbs + `
   <div class="chips">${chips}</div>
   <div class="tiles">
-    <div class="tile"><div class="k">Inventory</div><div class="v">${s.total}</div>
+    <div class="${tileCls("all")}" data-tile="all" title="Show all devices"><div class="k">Inventory</div><div class="v">${s.total}</div>
       <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""}</div></div>
-    <div class="tile"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(s.deployed, s.total))} of inventory</span></div><div class="v">${s.deployed}</div>
-      <div class="s">In a network${c?.monitored ? ` · ${c.monitored} with config source: device (monitoring), so no license needed` : ", so each needs a license"} · ${s.unassigned} not in a network</div></div>
-    <div class="tile"><div class="k">Licensed <span class="pc">· ${c ? fmtPct(pct(c.licensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.licensed : "—"}</div>
+    <div class="${tileCls("deployed")}" data-tile="deployed" title="Show devices in a network"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(s.deployed, s.total))} of inventory</span></div><div class="v">${s.deployed}</div>
+      <div class="s">In a network${c?.monitored ? ` · <a class="tilelink ${tileOn("monitoring") ? "on" : ""}" data-tile="monitoring" title="Show devices with config source: device (monitoring)">${c.monitored} with config source: device (monitoring)</a>, so no license needed` : ", so each needs a license"} · ${s.unassigned} not in a network</div></div>
+    <div class="${tileCls("licensed")}" data-tile="licensed" title="Show licensed devices"><div class="k">Licensed <span class="pc">· ${c ? fmtPct(pct(c.licensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.licensed : "—"}</div>
       <div class="s">${c ? "Covered by an active license" : cov?.err ? `<span class="err">${esc(cov.err)}</span>` : "Checking…"}</div></div>
-    <div class="tile ${c?.unlicensed ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${c ? fmtPct(pct(c.unlicensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.unlicensed : "—"}</div>
+    <div class="${tileCls("unlicensed")} ${c?.unlicensed ? "alert" : ""}" data-tile="unlicensed" title="Show unlicensed devices"><div class="k">Unlicensed <span class="pc">· ${c ? fmtPct(pct(c.unlicensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.unlicensed : "—"}</div>
       <div class="s">${!c ? "" : c.unlicensed ? "Deployed with no license to cover them" : "Every deployed device is covered"}</div>
       ${c?.unlicensed ? `<a class="go" href="${unlicensedHref(id)}">See which networks →</a>` : ""}</div>
     <div class="tile"><div class="k">Org license status</div><div class="v" style="font-size:16px">${modelPill(d.model)} ${d.overview ? statusPill(d.overview.status) : ""}</div>
@@ -841,7 +851,7 @@ function activeFilters(id) {
   if (state.ffam) out.push(["Family", state.ffam]);
   if (state.fnet) out.push(["Network", state.fnet === "__none__" ? "Not in a network" : ((d.networks || []).find(n => n.id === state.fnet)?.name || state.fnet)]);
   if (state.fmodel) out.push(["Model", state.fmodel]);
-  if (state.fdep === "deployed") out.push(["Status", "Licensed"]);
+  if (state.fdep === "deployed") out.push(["Status", "Deployed"]);
   if (state.fdep === "unassigned") out.push(["Status", "Not in a network"]);
   if (state.fdep === "licensed") out.push(["Status", "Licensed"]);
   if (state.fdep === "unlicensed") out.push(["Status", "Unlicensed"]);
@@ -948,6 +958,13 @@ document.addEventListener("click", e => {
   const jump = e.target.closest("[data-jump]");
   if (jump) { e.preventDefault(); $("#" + jump.dataset.jump)?.scrollIntoView({ behavior: "smooth" }); return; }
   if (e.target.closest("a[href^='#org=']")) return;
+  const tile = e.target.closest("[data-tile]");
+  if (tile) {
+    Object.assign(state, TILE_FILTER[tile.dataset.tile]);
+    render();
+    $("#devices")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
   const tr = e.target.closest("[data-org]");
   if (tr) { location.hash = "org=" + encodeURIComponent(tr.dataset.org); return; }
   const net = e.target.closest("[data-net]");
@@ -973,10 +990,10 @@ document.addEventListener("input", e => {
   if (e.target.id === "q") { state.q = e.target.value; renderDevTable(route()); }
 });
 document.addEventListener("change", e => {
-  if (e.target.id === "fdep") { state.fdep = e.target.value; renderDevTable(route()); }
+  if (e.target.id === "fdep") { state.fdep = e.target.value; render(); }       // re-render so the matching tile highlights
   if (e.target.id === "fnet") { state.fnet = e.target.value; render(); }      // re-render so the network chart highlights it
   if (e.target.id === "fmodel") { state.fmodel = e.target.value; renderDevTable(route()); }
-  if (e.target.id === "fsrc") { state.fsrc = e.target.value; renderDevTable(route()); }
+  if (e.target.id === "fsrc") { state.fsrc = e.target.value; render(); }
   if (e.target.id === "auto") schedule();
 });
 window.addEventListener("hashchange", () => {
