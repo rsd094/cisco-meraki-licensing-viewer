@@ -326,7 +326,7 @@ function coverage(id) {
   if (!L) return { err: state.licErr[id], pending: !state.licErr[id] };
   const inNet = inv.filter(x => x.networkId).map(x => ({ ...x, fam: familyOf(x) }));
   const groups = {}, status = {};
-  // cloud-monitored devices (configuration source: device, 9800 WLCs) don't consume a license
+  // devices with config source: device (aka monitoring) and 9800 WLCs don't consume a license
   const mon = inNet.filter(x => !managementMode(x).consumes);
   for (const x of mon) status[x.serial] = "na";
   const dep = inNet.filter(x => status[x.serial] !== "na");
@@ -375,7 +375,7 @@ function covCounts(cov, fam) {
     deployed += n; unlicensed += fam ? Math.round(g.short * n / g.need) : g.short;
   }
   const monitored = (cov.mon || []).filter(x => !fam || x.fam === fam).length;
-  // `deployed` here is the devices that need a license; cloud-monitored ones are counted apart
+  // `deployed` here is the devices that need a license; config source: device ones are counted apart
   return { deployed, unlicensed, licensed: deployed - unlicensed, monitored };
 }
 const COV_LABEL = { licensed: "Licensed", unlicensed: "Unlicensed", over: "Over limit", na: "N/A" };
@@ -383,7 +383,7 @@ const COV_TIP = {
   licensed: "Covered by an active license.",
   unlicensed: "In a network, but the org holds no active license for it.",
   over: "The org has fewer licenses than devices of this type. Licenses are pooled, so Meraki doesn't say which devices are the uncovered ones.",
-  na: "Cloud-monitored: managed on-prem (configuration source: device or a 9800 controller), so it doesn't consume a Meraki license.",
+  na: "Config source: device (aka monitoring): managed on-prem (or a 9800 controller), so it doesn't consume a Meraki license.",
 };
 function covPill(st) {
   if (!st) return '<span class="muted">—</span>';
@@ -438,7 +438,7 @@ function renderOverview() {
     <div class="tile"><div class="k">Inventory</div><div class="v">${tot.total}</div>
       <div class="s">Every device claimed across ${state.orgs.length} organization${state.orgs.length === 1 ? "" : "s"}</div></div>
     <div class="tile"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(tot.deployed, tot.total))} of inventory</span></div><div class="v">${tot.deployed}</div>
-      <div class="s">In a network${mon ? ` · ${mon} cloud-monitored, so no license needed` : ", so each needs a license"} · ${tot.unassigned} sitting in inventory</div></div>
+      <div class="s">In a network${mon ? ` · ${mon} with config source: device (aka monitoring), so no license needed` : ", so each needs a license"} · ${tot.unassigned} sitting in inventory</div></div>
     <div class="tile"><div class="k">Licensed <span class="pc">· ${covDep ? fmtPct(pct(lic, covDep)) : "—"} of ${mon ? "those needing one" : "deployed"}</span></div><div class="v">${covered.length ? lic : "—"}</div>
       <div class="s">Deployed and covered by an active license${pending ? ' · <span class="spinner"></span> checking' : ""}</div></div>
     <div class="tile ${unlic ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${covDep ? fmtPct(pct(unlic, covDep)) : "—"} of ${mon ? "those needing one" : "deployed"}</span></div><div class="v">${covered.length ? unlic : "—"}</div>
@@ -472,11 +472,11 @@ function renderSplit(total, lic, unlic, mon, unknown, none) {
   const segs = [
     { n: lic, color: SEG.lic, tip: t("Licensed", lic, total, "inventory") },
     { n: unlic, color: SEG.unlic, tip: t("Unlicensed", unlic, total, "inventory") },
-    { n: mon, color: SEG.mon, tip: t("Cloud-monitored (no license needed)", mon, total, "inventory") },
+    { n: mon, color: SEG.mon, tip: t("Config source: device (aka monitoring), no license needed", mon, total, "inventory") },
     { n: unknown, color: SEG.unknown, tip: t("Deployed, license not checked yet", unknown, total, "inventory") },
     { n: none, color: SEG.none, tip: t("Not in a network (no license needed)", none, total, "inventory") },
   ];
-  const items = [["Licensed", SEG.lic, lic], ["Unlicensed", SEG.unlic, unlic], ...(mon ? [["Cloud-monitored (no license)", SEG.mon, mon]] : []), ...(unknown ? [["Not checked", SEG.unknown, unknown]] : []), ["Not in a network", SEG.none, none]];
+  const items = [["Licensed", SEG.lic, lic], ["Unlicensed", SEG.unlic, unlic], ...(mon ? [["Config source: device (aka monitoring)", SEG.mon, mon]] : []), ...(unknown ? [["Not checked", SEG.unknown, unknown]] : []), ["Not in a network", SEG.none, none]];
   const dep = lic + unlic + mon + unknown;
   return `<section class="card"><h2>Where your inventory stands <span class="sub">${total} devices</span></h2>
     <div class="split">${dep ? `<div class="depmark" style="width:${(100 * dep / total).toFixed(2)}%">Deployed <strong>${dep}</strong> · ${fmtPct(pct(dep, total))} of inventory</div>` : ""}${hbar(segs, total)}
@@ -516,16 +516,16 @@ function renderOrgCharts() {
       const r = by[f], t = sum(r), dep = t - r.none, tip = (label, n) => `<strong>${esc(f)}</strong><br>${label}: ${n} of ${t} (${fmtPct(pct(n, t))})<br>Deployed: ${dep} of ${t}`;
       return `<div class="hrow"><span class="lbl"><strong>${esc(f)}</strong></span>
         ${hbar([{ n: r.lic, color: SEG.lic, tip: tip("Licensed", r.lic) }, { n: r.unlic, color: SEG.unlic, tip: tip("Unlicensed", r.unlic) },
-                { n: r.mon, color: SEG.mon, tip: tip("Cloud-monitored (no license needed)", r.mon) }, { n: r.unknown, color: SEG.unknown, tip: tip("Deployed, license not checked", r.unknown) }, { n: r.none, color: SEG.none, tip: tip("Not in a network", r.none) }], max)}
+                { n: r.mon, color: SEG.mon, tip: tip("Config source: device (aka monitoring), no license needed", r.mon) }, { n: r.unknown, color: SEG.unknown, tip: tip("Deployed, license not checked", r.unknown) }, { n: r.none, color: SEG.none, tip: tip("Not in a network", r.none) }], max)}
         <span class="val" title="Deployed / total"><strong style="color:var(--text)">${dep}</strong> / ${t}</span></div>`;
     }).join("");
     const s = summarise(state.inv[o.id]);
     return `<div class="orgchart" data-org="${esc(o.id)}"><h3>${esc(o.name)}</h3>
-      <div class="s"><strong style="color:var(--text)">${s.deployed} deployed</strong>${c ? ` (${c.licensed} licensed · <span class="${c.unlicensed ? "err" : ""}">${c.unlicensed} unlicensed</span>${c.monitored ? ` · ${c.monitored} cloud-monitored` : ""})` : ""} · ${s.unassigned} not in a network</div>${rows}</div>`;
+      <div class="s"><strong style="color:var(--text)">${s.deployed} deployed</strong>${c ? ` (${c.licensed} licensed · <span class="${c.unlicensed ? "err" : ""}">${c.unlicensed} unlicensed</span>${c.monitored ? ` · ${c.monitored} config source: device` : ""})` : ""} · ${s.unassigned} not in a network</div>${rows}</div>`;
   }).join("");
   if (!cards) return "";
   return `<section class="card"><h2>By product family
-    ${legend([["Licensed", SEG.lic], ["Unlicensed", SEG.unlic], ["Cloud-monitored (no license)", SEG.mon], ["Not in a network", SEG.none]])}</h2>
+    ${legend([["Licensed", SEG.lic], ["Unlicensed", SEG.unlic], ["Config source: device (aka monitoring)", SEG.mon], ["Not in a network", SEG.none]])}</h2>
     <div class="orgcharts">${cards}</div>
     <div class="body note" style="padding-top:0">Numbers on the right are deployed / total devices. Hover a bar for detail; click an organization to open it.</div></section>`;
 }
@@ -678,7 +678,7 @@ function renderOrg(id) {
     <div class="tile"><div class="k">Inventory</div><div class="v">${s.total}</div>
       <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""}</div></div>
     <div class="tile"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(s.deployed, s.total))} of inventory</span></div><div class="v">${s.deployed}</div>
-      <div class="s">In a network${c?.monitored ? ` · ${c.monitored} cloud-monitored, so no license needed` : ", so each needs a license"} · ${s.unassigned} not in a network</div></div>
+      <div class="s">In a network${c?.monitored ? ` · ${c.monitored} with config source: device (aka monitoring), so no license needed` : ", so each needs a license"} · ${s.unassigned} not in a network</div></div>
     <div class="tile"><div class="k">Licensed <span class="pc">· ${c ? fmtPct(pct(c.licensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.licensed : "—"}</div>
       <div class="s">${c ? "Covered by an active license" : cov?.err ? `<span class="err">${esc(cov.err)}</span>` : "Checking…"}</div></div>
     <div class="tile ${c?.unlicensed ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${c ? fmtPct(pct(c.unlicensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.unlicensed : "—"}</div>
@@ -695,7 +695,8 @@ function renderOrg(id) {
       <input id="q" placeholder="Search serial, model, name, network" value="${esc(state.q || "")}" size="26">
       ${networkSelect(id, all)}
       ${modelSelect(all)}
-      <select id="fdep" title="Status">${[["all", "All devices"], ["deployed", "Deployed (in a network)"], ["licensed", "Licensed"], ["unlicensed", "Unlicensed or over limit"], ["monitored", "Cloud-monitored (no license)"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select id="fdep" title="Status">${[["all", "All devices"], ["deployed", "Deployed (in a network)"], ["licensed", "Licensed"], ["unlicensed", "Unlicensed or over limit"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select id="fsrc" title="Config source">${[["", "All config sources"], ["cloud", "Config source: cloud"], ["device", "Config source: device (aka monitoring)"]].map(([v, l]) => `<option value="${v}" ${(state.fsrc || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
       <button id="clearfilters" ${activeFilters(id).length ? "" : "hidden"}>Clear filters</button>
       <button id="csv" class="primary" title="Exports exactly the rows shown, with the filters and sort you've chosen">Export CSV</button>
     </span></h2>
@@ -794,7 +795,8 @@ function filteredDevs(id) {
     .filter(x => !state.fnet || (state.fnet === "__none__" ? !x.networkId : x.networkId === state.fnet))
     .filter(x => !state.fmodel || x.model === state.fmodel)
     .filter(x => (state.fdep === "deployed" ? x.networkId : state.fdep === "unassigned" ? !x.networkId
-      : state.fdep === "licensed" ? x.cov === "licensed" : state.fdep === "unlicensed" ? x.cov === "unlicensed" || x.cov === "over" : state.fdep === "monitored" ? x.mgmt.mode === "monitored" : true))
+      : state.fdep === "licensed" ? x.cov === "licensed" : state.fdep === "unlicensed" ? x.cov === "unlicensed" || x.cov === "over" : true))
+    .filter(x => !state.fsrc || (state.fsrc === "device") === (x.mgmt.mode === "monitored"))
     .filter(x => !q || [x.serial, x.model, x.name, x.net, x.license.sku, x.license.tier].join(" ").toLowerCase().includes(q));
 }
 const DEV_COLS = [
@@ -804,7 +806,7 @@ const DEV_COLS = [
   { key: "net", label: "Network", val: r => r.net },
   { key: "dep", label: "Deployed", val: r => r.networkId ? 1 : 0 },
   { key: "st", label: "Online", val: r => r.st },
-  { key: "mgmt", label: "Management", val: r => r.mgmt.label },
+  { key: "mgmt", label: "Config source", val: r => r.mgmt.label },
   { key: "cov", label: "Licensed", val: r => r.cov },
   { key: "tier", label: "License class", val: r => r.license.tier },
   { key: "sku", label: "License SKU", val: r => r.license.sku },
@@ -835,7 +837,7 @@ function activeFilters(id) {
   if (state.fdep === "unassigned") out.push(["Status", "Not in a network"]);
   if (state.fdep === "licensed") out.push(["Status", "Licensed"]);
   if (state.fdep === "unlicensed") out.push(["Status", "Unlicensed"]);
-  if (state.fdep === "monitored") out.push(["Status", "Cloud-monitored"]);
+  if (state.fsrc) out.push(["Config source", state.fsrc === "device" ? "device (aka monitoring)" : "cloud"]);
   if (state.q) out.push(["Search", state.q]);
   return out;
 }
@@ -879,7 +881,7 @@ const MS_DOC = "https://documentation.meraki.com/Platform_Management/Product_Inf
 function exportCsv(id) {
   const d = state.detail[id];
   const rows = sortedDevs(id);
-  const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "management", "licensed", "licenseClass", "licenseSku", "skuInferred"];
+  const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "configSource", "licensed", "licenseClass", "licenseSku", "skuInferred"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, r.mgmt.label, COV_LABEL[r.cov] || "", r.cov === "na" ? "not needed" : r.networkId ? r.license.tier : "not licensed", r.license.sku, r.license.inferred ?? r.lic.inferred].map(q).join(",")));
   const a = document.createElement("a");
@@ -947,7 +949,7 @@ document.addEventListener("click", e => {
     if (state.fnet) $("#devices")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
-  if (e.target.id === "clearfilters") { Object.assign(state, { ffam: "", fnet: "", fmodel: "", fdep: "all", q: "" }); render(); return; }
+  if (e.target.id === "clearfilters") { Object.assign(state, { ffam: "", fnet: "", fmodel: "", fdep: "all", fsrc: "", q: "" }); render(); return; }
   if (e.target.id === "allnets") { state.showAllNets = !state.showAllNets; render(); return; }
   if (e.target.closest("[data-home]")) { location.hash = ""; return; }
   const chip = e.target.closest("[data-fam]");
@@ -966,10 +968,11 @@ document.addEventListener("change", e => {
   if (e.target.id === "fdep") { state.fdep = e.target.value; renderDevTable(route()); }
   if (e.target.id === "fnet") { state.fnet = e.target.value; render(); }      // re-render so the network chart highlights it
   if (e.target.id === "fmodel") { state.fmodel = e.target.value; renderDevTable(route()); }
+  if (e.target.id === "fsrc") { state.fsrc = e.target.value; renderDevTable(route()); }
   if (e.target.id === "auto") schedule();
 });
 window.addEventListener("hashchange", () => {
-  state.q = ""; state.fdep = "all"; state.ffam = ""; state.fnet = ""; state.fmodel = ""; state.showAllNets = false;
+  state.q = ""; state.fdep = "all"; state.fsrc = ""; state.ffam = ""; state.fnet = ""; state.fmodel = ""; state.showAllNets = false;
   if (state.pending) { Object.assign(state, state.pending); state.pending = null; state.jumpDevices = true; }
   scrollTo(0, 0);
   render();
