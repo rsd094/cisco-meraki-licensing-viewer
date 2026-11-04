@@ -140,7 +140,7 @@ function managementMode(dev) {
 //   line "mx"  : MX edition Enterprise (ENT) / Advanced Security (SEC) / Secure SD-WAN Plus (SDW)
 //   line "vmx" : vMX Enterprise (ENT) / Advanced Security (SEC)
 //   line "z4"  : Z4 Enterprise (ENT) / Secure Teleworker (SEC)
-//   line "mr"  : MR Enterprise (LIC-ENT) / MR Advanced (LIC-MR-ADV), model-agnostic, Wi-Fi 7 included
+//   line "mr"  : MR Enterprise (LIC-ENT) / MR Advanced (LIC-MR-ADV), model-agnostic: Meraki MR APs and CW916x
 //   line "ms"  : MS130, MS150, MS390, Catalyst C9300-M / C9200L-M: Enterprise / Advanced, one tier per org
 //   line "cns" : unified Cisco Networking Subscription in any org: Wi-Fi 7 (LIC-CW) and C9350 / C9550 / C9610
 //                smart switches (LIC-CS-...), Essentials / Advantage (C9550 and C9610 are Advantage only)
@@ -156,9 +156,9 @@ function cotermLicense(model, family) {
   let x;
   if (/^C9800/.test(m)) return r(m, null, null, "Catalyst 9800 wireless controller: not licensed through Meraki co-term");
   if (/^C91\d\d/.test(m)) return r(m, null, null, "Catalyst AP managed by a 9800 controller: not licensed through Meraki co-term");
-  // Wi-Fi 7 follows unified licensing (LIC-CW Essentials / Advantage); in a co-term org it counts against the MR license
-  if (/^CW917/.test(m)) return r("MR", "cns", code => code === "ADV" ? "LIC-CW-A" : "LIC-CW-E",
-    "Wi-Fi 7 uses unified licensing (LIC-CW); in a co-term org it counts against the MR licenses and follows the MR edition (Advanced = Advantage)");
+  // Wi-Fi 7 (CW917x) has its own unified license (LIC-CW Essentials / Advantage); it doesn't draw on the MR license
+  if (/^CW917/.test(m)) return r("CW", "cns", code => code === "ADV" ? "LIC-CW-A" : "LIC-CW-E",
+    "Wi-Fi 7 uses its own unified license (LIC-CW), separate from the MR licenses");
   if (family === "MR" || family === "CW" || /^(MR\d|CW916)/.test(m))
     return r("MR", "mr", code => code === "ADV" ? "LIC-MR-ADV" : "LIC-ENT", "MR licenses are model-agnostic");
   const uni = classifyModel(model);
