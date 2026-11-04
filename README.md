@@ -4,6 +4,7 @@ A small app that runs on your own computer and shows, for every Meraki organizat
 
 - **Inventory**: every device claimed in the organization, assigned or not.
 - **Deployed**: devices in a network. Only these need a license.
+- **Cloud-monitored devices**: Catalyst devices in cloud monitoring (configuration source: device) and Catalyst 9800 wireless controllers are managed on-prem and only send telemetry to Dashboard, so they don't consume a license and show **N/A**. The viewer reads this from each device's "Cloud configuration" detail in the inventory API. Exception: Wi-Fi 7 APs consume a license even when monitored. A Catalyst device converted to cloud configuration shows as **Cloud-managed** and needs a license.
 - **Licensed / Unlicensed**: how many deployed devices the org's active licenses actually cover. Unlicensed devices link to a page listing the networks they're in, with a shortcut to those devices.
 - **Each device's license class and SKU**: Enterprise or Advantage, plus the subscription license SKU its hardware model needs, per Meraki's licensing docs.
 - **Each org's share of licensed hardware** across all your orgs, with filters by product family (MX, MS, MR, CW, MV, MT…) and CSV export.

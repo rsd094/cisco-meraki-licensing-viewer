@@ -101,6 +101,31 @@ function classifyModel(model) {
   return { cls: "Unmapped", sku: "—", family: "Other", inferred: true, note: "No matching license class in the referenced docs" };
 }
 
+// ---------- Management mode: does the device consume a Meraki license at all? ----------
+// Catalyst devices onboarded for cloud monitoring ("configuration source: device") report the inventory
+// detail "Cloud configuration: monitoring" and are managed on-prem: Dashboard only receives telemetry, so
+// they don't consume a Meraki license. Catalyst 9800 wireless controllers never do. Exception: Wi-Fi 7 APs
+// "will consume subscription licenses within dashboard even when in Cloud Monitoring mode for Wireless".
+// Everything else (Meraki devices, -M Catalyst switches, Catalyst in cloud configuration) is cloud-managed.
+// Sources: Meraki docs "Cloud Monitoring for Wireless Requirements", "Enable Cloud Management for Cisco
+// Switches with Device Configuration" and "Cisco Cloud Entitlement for DNA".
+const DNA_OFFER_NOTE = "Non-M Catalyst switches and Wi-Fi 5/6/6E APs may fall under Cisco's Cloud Entitlement for DNA offer (they don't count against the license limit until Feb 1, 2029); check Organization → License info";
+function managementMode(dev) {
+  const m = normaliseModel(dev.model);
+  const detail = name => (dev.details || []).find(d => name.test(d.name))?.value;
+  const cfg = String(detail(/^cloud configuration$|configuration source/i) || "");
+  const catalyst = !!detail(/^catalyst serial$/i) || /^(C9\d|IE-?\d|CW98)/.test(m);
+  if (dev.productType === "wirelessController" || /^C?W?9800|^CW9800/.test(m))
+    return { mode: "monitored", label: "Cloud-monitored", consumes: false, note: "Catalyst 9800 wireless controller in cloud monitoring (hybrid) mode: it keeps managing its APs on-prem and sends telemetry to Dashboard. No Meraki license." };
+  if (/monitor|device/i.test(cfg)) {
+    if (/^CW917/.test(m)) return { mode: "monitored", label: "Cloud-monitored", consumes: true, note: "Cloud monitoring, but Wi-Fi 7 APs consume a subscription license even when monitored." };
+    return { mode: "monitored", label: "Cloud-monitored", consumes: false, note: `Cloud configuration: ${cfg} (configuration source: device). Managed on-prem; Dashboard only receives telemetry, so no Meraki license is consumed. Converting it to cloud configuration would make it consume one.` };
+  }
+  const offer = catalyst && !/-MR?$/i.test(String(dev.sku || dev.model)) && /^(C9[235]\d0|C91\d\d|CW916)/.test(m);
+  return { mode: "managed", label: "Cloud-managed", consumes: true,
+    note: catalyst ? `Catalyst in cloud configuration (configuration source: cloud): consumes a Meraki license.${offer ? " " + DNA_OFFER_NOTE + "." : ""}` : "" };
+}
+
 // ---------- Co-termination licensing ----------
 // Co-term (and per-device) licenses are per hardware model, not per size class, and the edition
 // is set org-wide per product line. Sources: Meraki docs "Co-Termination Licensing",
