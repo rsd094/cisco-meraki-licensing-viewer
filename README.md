@@ -1,9 +1,10 @@
-# Cisco Meraki Licensing Viewer
+# Cisco Meraki Licensing Viewer 2.0
 
 A small app that runs on your own computer and shows, for every Meraki organization your API key can see:
 
-- **Licensed devices**: devices assigned to a network. Only these consume a license.
 - **Inventory**: every device claimed in the organization, assigned or not.
+- **Deployed**: devices in a network. Only these need a license.
+- **Licensed / Unlicensed**: how many deployed devices the org's active licenses actually cover. Unlicensed devices link to a page listing the networks they're in, with a shortcut to those devices.
 - **Each device's license class and SKU**: Enterprise or Advantage, plus the subscription license SKU its hardware model needs, per Meraki's licensing docs.
 - **Each org's share of licensed hardware** across all your orgs, with filters by product family (MX, MS, MR, CW, MV, MT…) and CSV export.
 

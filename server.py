@@ -184,7 +184,7 @@ def main():
     if not srv:
         sys.exit(f"No free port between {args.port} and {args.port + 19}.")
     url = f"http://localhost:{srv.server_port}"
-    print(f"Cisco Meraki Licensing Viewer running at {url}  (Ctrl+C to stop)", flush=True)
+    print(f"Cisco Meraki Licensing Viewer 2.0 running at {url}  (Ctrl+C to stop)", flush=True)
     print("Read-only: only GET requests are sent to the Meraki Dashboard API; nothing is changed.", flush=True)
     if args.open:
         threading.Timer(0.5, webbrowser.open, [url]).start()

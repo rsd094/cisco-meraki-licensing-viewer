@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cisco Meraki Licensing Viewer</title>
+<title>Cisco Meraki Licensing Viewer 2.0</title>
 <style>
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --text: #1c2330; --muted: #5f6b7c; --border: #dfe3e8;
@@ -78,6 +78,19 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .chip.on span { color: #fff; opacity: .8; }
 .tile .v.err { color: var(--bad); }
+.tile.alert { border-color: var(--bad); }
+.tile.alert .v { color: var(--bad); }
+.tile .go { margin-top: 8px; font-size: 12.5px; padding: 4px 10px; }
+.tile .k .pc { text-transform: none; letter-spacing: 0; }
+:root { --seg-none: #bcc4cf; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --seg-none: #4a5361; } }
+:root[data-theme="dark"] { --seg-none: #4a5361; }
+.split { padding: 12px 14px 14px; }
+.split .track { height: 18px; }
+.split .legend { margin-top: 8px; }
+a.go, button.go { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); text-decoration: none; cursor: pointer; border-radius: 6px; display: inline-block; }
+.intro { font-size: 15px; margin: 0 0 6px; }
+.intro strong { color: var(--bad); }
 #tip { position: fixed; z-index: 50; max-width: 340px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 24px rgba(0,0,0,.25); display: none; white-space: normal; }
 #tip a, .note a { color: var(--accent); }
 #tip p { margin: 6px 0 0; } #tip ul { margin: 4px 0 0; padding-left: 18px; }
@@ -112,7 +125,7 @@ footer.disclaimer { max-width: 1400px; margin: 0 auto; padding: 0 24px 28px; col
 </head>
 <body>
 <header>
-  <h1>Cisco Meraki Licensing Viewer</h1>
+  <h1>Cisco Meraki Licensing Viewer <span class="muted" style="font-weight:400">2.0</span></h1>
   <div class="controls">
     <span id="status"></span>
     <label>Auto-refresh
@@ -175,12 +188,14 @@ async function pool(items, n, fn) {
 }
 
 // ---------- state ----------
-const state = { orgs: [], inv: {}, invErr: {}, detail: {}, loading: false, updated: null, sort: {} };
+const state = { orgs: [], inv: {}, invErr: {}, lic: {}, licErr: {}, detail: {}, loading: false, updated: null, sort: {} };
 
 function route() {
   const m = location.hash.match(/org=([^&]+)/);
   return m ? decodeURIComponent(m[1]) : null;
 }
+const view = () => (location.hash.match(/view=(\w+)/) || [])[1] || "";
+const unlicensedHref = id => `#org=${encodeURIComponent(id)}&view=unlicensed`;
 
 // ---------- data loading ----------
 async function loadOverview() {
@@ -192,7 +207,19 @@ async function loadOverview() {
     try { state.inv[o.id] = await api(`/organizations/${o.id}/inventory/devices`); delete state.invErr[o.id]; }
     catch (e) { state.invErr[o.id] = e.message; }
     render();
+    try { state.lic[o.id] = await loadLicensing(o); delete state.licErr[o.id]; }
+    catch (e) { state.licErr[o.id] = e.message; }
+    render();
   });
+}
+
+// Just the licensing data needed to work out which deployed devices are covered
+async function loadLicensing(o) {
+  const id = o.id, L = { model: o.licensing?.model || "unknown" };
+  if (L.model === "co-term" || L.model === "per-device") L.overview = await api(`/organizations/${id}/licenses/overview`);
+  if (L.model === "per-device") L.licenses = await api(`/organizations/${id}/licenses`);
+  if (L.model === "subscription") L.subscriptions = await api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
+  return L;
 }
 
 async function loadOrg(id) {
@@ -217,6 +244,9 @@ async function loadOrg(id) {
     try { d[k] = await f(); } catch (e) { d.err[k] = e.message; }
   }));
   if (d.inventory) state.inv[id] = d.inventory;
+  const licErr = d.err.overview || d.err.licenses || d.err.subscriptions;
+  if (licErr) state.licErr[id] = licErr;
+  else { state.lic[id] = { model, overview: d.overview, licenses: d.licenses, subscriptions: d.subscriptions }; delete state.licErr[id]; }
   state.detail[id] = d;
 }
 
@@ -251,6 +281,92 @@ function familyOf(d) {
   return { appliance: "MX", switch: "MS", wireless: "MR", camera: "MV", sensor: "MT", cellularGateway: "MG", wirelessController: "WLC" }[d.productType] || (d.productType || "Other");
 }
 
+// ---------- license coverage ----------
+// Deployed devices are grouped by the license they need and compared with the licenses the org
+// actually holds. Co-term and subscription licenses are pooled, so a shortfall can't be pinned
+// to one device: every device in a short group is "over limit". Per-device licensing is exact.
+function cotermPool(counts) {
+  const pool = {};
+  for (const [k, n] of Object.entries(counts || {})) {
+    let key = String(k).toUpperCase().replace(/\s+(ENTERPRISE|ADVANCED.*)$/, "").replace(/^(MS\d+-\d+)[EA]$/, "$1");
+    if (key === "WIRELESS") key = "MR";
+    pool[key] = (pool[key] || 0) + n;
+  }
+  return pool;
+}
+function cotermKey(x, pool) {
+  if (x.fam === "MR" || x.fam === "CW") return "MR";
+  if (x.fam === "MV" || x.fam === "MT") return x.fam;
+  const m = normaliseModel(x.model);
+  if (m in pool) return m;
+  // a port-count license covers its variants, e.g. MS390-48 covers MS390-48UX
+  if (/^(MS39|MS4|C9)/.test(m)) {
+    const k = Object.keys(pool).filter(k => m.startsWith(k)).sort((a, b) => b.length - a.length)[0];
+    if (k) return k;
+  }
+  return m;
+}
+function coverage(id) {
+  const inv = state.inv[id], L = state.lic[id];
+  if (!inv) return null;
+  if (!L) return { err: state.licErr[id], pending: !state.licErr[id] };
+  const dep = inv.filter(x => x.networkId).map(x => ({ ...x, fam: familyOf(x) }));
+  const groups = {}, status = {};
+  const add = (key, x) => (groups[key] ||= { key, fam: x.fam, devs: [], have: 0 }).devs.push(x);
+  let reason = "", exact = null;
+  if (L.model === "co-term") {
+    const pool = cotermPool(L.overview?.licensedDeviceCounts);
+    const expired = /expired/i.test(L.overview?.status || "");
+    for (const x of dep) add(cotermKey(x, pool), x);
+    for (const g of Object.values(groups)) g.have = expired ? 0 : (pool[g.key] || 0);
+    if (expired) reason = `The org's co-term license expired${L.overview.expirationDate ? " on " + L.overview.expirationDate : ""}, so no device is covered.`;
+  } else if (L.model === "per-device") {
+    exact = new Set((L.licenses || []).filter(l => l.deviceSerial && l.state === "active").map(l => l.deviceSerial));
+    for (const x of dep) add(normaliseModel(x.model), x);
+    for (const g of Object.values(groups)) g.have = g.devs.filter(x => exact.has(x.serial)).length;
+  } else if (L.model === "subscription") {
+    const pool = {};
+    for (const s of L.subscriptions || []) {
+      if (s.status && !/active/i.test(s.status)) continue;
+      for (const e of s.entitlements || []) {
+        const k = String(e.sku || "").toUpperCase().replace(/-[AE]$/, "");
+        pool[k] = (pool[k] || 0) + (e.seats?.limit ?? e.quantity ?? 0);
+      }
+    }
+    for (const x of dep) add(classifyModel(x.model).sku, x);
+    for (const g of Object.values(groups)) g.have = g.key === "—" ? g.devs.length : (pool[g.key] || 0); // no SKU listed: nothing to buy
+  } else {
+    return { err: `“${L.model}” licensing isn't supported` };
+  }
+  const list = Object.values(groups).sort((a, b) => famSort(a.fam, b.fam) || a.key.localeCompare(b.key));
+  for (const g of list) {
+    g.need = g.devs.length; g.short = Math.max(0, g.need - g.have);
+    for (const x of g.devs) status[x.serial] = exact ? (exact.has(x.serial) ? "licensed" : "unlicensed")
+      : !g.short ? "licensed" : g.have ? "over" : "unlicensed";
+  }
+  return { model: L.model, groups: list, status, reason, ...covCounts({ groups: list }) };
+}
+// Counts for the whole org, or one product family
+function covCounts(cov, fam) {
+  let deployed = 0, unlicensed = 0;
+  for (const g of cov.groups) {
+    // one pool can span families (MR and CW share the MR license), so split its shortfall by device share
+    const n = fam ? g.devs.filter(x => x.fam === fam).length : g.need;
+    deployed += n; unlicensed += fam ? Math.round(g.short * n / g.need) : g.short;
+  }
+  return { deployed, unlicensed, licensed: deployed - unlicensed };
+}
+const COV_LABEL = { licensed: "Licensed", unlicensed: "Unlicensed", over: "Over limit" };
+const COV_TIP = {
+  licensed: "Covered by an active license.",
+  unlicensed: "In a network, but the org holds no active license for it.",
+  over: "The org has fewer licenses than devices of this type. Licenses are pooled, so Meraki doesn't say which devices are the uncovered ones.",
+};
+function covPill(st) {
+  if (!st) return '<span class="muted">—</span>';
+  return `<span class="pill ${st === "licensed" ? "ok" : st === "over" ? "warn" : "bad"}" data-tip="${esc(COV_TIP[st])}" style="cursor:help">${COV_LABEL[st]}</span>`;
+}
+
 // ---------- rendering ----------
 function sortable(tableId, rows, cols, rowHtml, rowAttr) {
   const s = state.sort[tableId] || {};
@@ -267,47 +383,79 @@ function sortable(tableId, rows, cols, rowHtml, rowAttr) {
 
 function renderOverview() {
   const loaded = state.orgs.filter(o => state.inv[o.id]);
-  const all = loaded.flatMap(o => state.inv[o.id]);
-  const tot = summarise(all);
+  const tot = summarise(loaded.flatMap(o => state.inv[o.id]));
   const rows = state.orgs.map(o => {
     const inv = state.inv[o.id];
     const s = inv ? summarise(inv) : null;
-    return { o, s, err: state.invErr[o.id], share: s ? pct(s.deployed, tot.deployed) : -1, dep: s ? pct(s.deployed, s.total) : -1 };
+    const cov = coverage(o.id);
+    const c = cov?.groups ? cov : null;
+    return { o, s, cov, c, err: state.invErr[o.id], dep: s ? pct(s.deployed, s.total) : -1, licp: c ? pct(c.licensed, c.deployed) : -1, share: s ? pct(s.deployed, tot.deployed) : -1 };
   });
+  // Coverage totals only count orgs whose licensing loaded
+  const covered = rows.filter(r => r.c);
+  const lic = covered.reduce((n, r) => n + r.c.licensed, 0), unlic = covered.reduce((n, r) => n + r.c.unlicensed, 0);
+  const covDep = lic + unlic;
+  const unlicOrgs = covered.filter(r => r.c.unlicensed);
+  const pending = rows.some(r => r.s && r.cov?.pending);
   const cols = [
     { key: "name", label: "Organization", val: r => r.o.name },
     { key: "id", label: "Org ID", val: r => r.o.id },
     { key: "model", label: "Licensing model", val: r => r.o.licensing?.model || "" },
-    { key: "deployed", label: "Licensed devices", num: 1, val: r => r.s?.deployed ?? -1 },
     { key: "total", label: "Inventory", num: 1, val: r => r.s?.total ?? -1 },
-    { key: "unassigned", label: "Unassigned", num: 1, val: r => r.s?.unassigned ?? -1 },
-    { key: "dep", label: "% deployed", val: r => r.dep },
-    { key: "share", label: "% of licensed hardware", val: r => r.share },
+    { key: "dep", label: "Deployed (in a network)", val: r => r.dep },
+    { key: "licp", label: "Licensed (of deployed)", val: r => r.licp },
+    { key: "unlic", label: "Unlicensed", num: 1, val: r => r.c?.unlicensed ?? -1 },
+    { key: "share", label: "Share of all deployed", val: r => r.share },
   ];
-  const famList = devs => {
-    const c = {};
-    for (const d of devs) c[familyOf(d)] = (c[familyOf(d)] || 0) + 1;
-    return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(" · ") || "—";
-  };
+  const go = unlicOrgs.length === 1 ? `<a class="go" href="${unlicensedHref(unlicOrgs[0].o.id)}">See which networks →</a>`
+    : unlicOrgs.length ? `<a class="go" href="#orgtable" data-jump="orgtable">Pick an organization ↓</a>` : "";
 
   return `
   <div class="tiles">
-    <div class="tile"><div class="k">Organizations</div><div class="v">${state.orgs.length}</div><div class="s">${loaded.length} inventories loaded</div></div>
-    <div class="tile"><div class="k">Licensed devices</div><div class="v">${tot.deployed}</div><div class="s">In a network · ${famList(all.filter(d => d.networkId))}</div></div>
-    <div class="tile"><div class="k">Inventory</div><div class="v">${tot.total}</div><div class="s">${tot.deployed} in a network · ${tot.unassigned} unassigned</div></div>
+    <div class="tile"><div class="k">Inventory</div><div class="v">${tot.total}</div>
+      <div class="s">Every device claimed across ${state.orgs.length} organization${state.orgs.length === 1 ? "" : "s"}</div></div>
+    <div class="tile"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(tot.deployed, tot.total))} of inventory</span></div><div class="v">${tot.deployed}</div>
+      <div class="s">In a network, so each needs a license · ${tot.unassigned} sitting in inventory</div></div>
+    <div class="tile"><div class="k">Licensed <span class="pc">· ${covDep ? fmtPct(pct(lic, covDep)) : "—"} of deployed</span></div><div class="v">${covered.length ? lic : "—"}</div>
+      <div class="s">Deployed and covered by an active license${pending ? ' · <span class="spinner"></span> checking' : ""}</div></div>
+    <div class="tile ${unlic ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${covDep ? fmtPct(pct(unlic, covDep)) : "—"} of deployed</span></div><div class="v">${covered.length ? unlic : "—"}</div>
+      <div class="s">${unlic ? `Deployed with no license to cover them, in ${unlicOrgs.length} org${unlicOrgs.length === 1 ? "" : "s"}` : covered.length ? "Every deployed device is covered" : "Checking licenses…"}</div>${go}</div>
   </div>
-  <section class="card">
-    <h2>Organizations <span class="sub">Only devices in a network consume a license, so “% of licensed hardware” counts those alone. Click an org for detail.</span></h2>
+  ${renderSplit(tot.total, lic, unlic, tot.deployed - covDep, tot.unassigned)}
+  <section class="card" id="orgtable">
+    <h2>Organizations <span class="sub">A device only uses a license once it's in a network. Click an org for detail.</span></h2>
     ${sortable("orgs", rows, cols, r => `
       <td><strong>${esc(r.o.name)}</strong></td>
       <td class="mono">${esc(r.o.id)}</td>
       <td>${modelPill(r.o.licensing?.model)}</td>
-      ${r.s ? `<td class="num"><strong>${r.s.deployed}</strong></td><td class="num">${r.s.total}</td><td class="num">${r.s.unassigned}</td>
-        <td>${bar(r.dep, "ok")}</td><td>${bar(r.share)}</td>`
+      ${r.s ? `<td class="num">${r.s.total}</td>
+        <td>${barN(r.s.deployed, r.dep, "")}</td>
+        <td>${r.c ? barN(r.c.licensed, r.licp, "ok") : covNote(r.cov)}</td>
+        <td class="num">${!r.c ? "" : r.c.unlicensed ? `<a class="go" style="padding:2px 8px" href="${unlicensedHref(r.o.id)}" title="See which networks">${r.c.unlicensed} →</a>` : '<span class="muted">0</span>'}</td>
+        <td>${bar(r.share)}</td>`
         : `<td colspan="5" class="${r.err ? "err" : "muted"}">${r.err ? esc(r.err) : '<span class="spinner"></span> loading inventory…'}</td>`}`,
       r => `class="click" data-org="${esc(r.o.id)}"`)}
   </section>
   ${renderOrgCharts()}`;
+}
+const barN = (n, v, cls) => `<div class="barwrap"><strong style="min-width:2.5em;text-align:right">${n}</strong><div class="bar ${cls}"><i style="width:${Math.min(100, v)}%"></i></div><span>${fmtPct(v)}</span></div>`;
+const covNote = cov => !cov ? "" : cov.pending ? '<span class="spinner"></span>' : `<span class="err" title="${esc(cov.err)}">License data unavailable</span>`;
+
+// One bar showing where the whole inventory stands
+const SEG = { lic: "var(--ok)", unlic: "var(--bad)", unknown: "var(--warn)", none: "var(--seg-none)" };
+function renderSplit(total, lic, unlic, unknown, none) {
+  if (!total) return "";
+  const t = (label, n, base, baseLabel) => `<strong>${label}</strong><br>${n} device${n === 1 ? "" : "s"} · ${fmtPct(pct(n, base))} of ${baseLabel}`;
+  const segs = [
+    { n: lic, color: SEG.lic, tip: t("Licensed", lic, total, "inventory") },
+    { n: unlic, color: SEG.unlic, tip: t("Unlicensed", unlic, total, "inventory") },
+    { n: unknown, color: SEG.unknown, tip: t("Deployed, license not checked yet", unknown, total, "inventory") },
+    { n: none, color: SEG.none, tip: t("Not in a network (no license needed)", none, total, "inventory") },
+  ];
+  const items = [["Licensed", SEG.lic, lic], ["Unlicensed", SEG.unlic, unlic], ...(unknown ? [["Not checked", SEG.unknown, unknown]] : []), ["Not in a network", SEG.none, none]];
+  return `<section class="card"><h2>Where your inventory stands <span class="sub">${total} devices</span></h2>
+    <div class="split">${hbar(segs, total)}
+      <span class="legend">${items.map(([l, c, n]) => `<span><i style="background:${c}"></i>${l} <strong style="color:var(--text)">${n}</strong> (${fmtPct(pct(n, total))})</span>`).join("")}</span></div></section>`;
 }
 
 // ---------- charts ----------
@@ -328,28 +476,33 @@ function hbar(segs, max) {
 }
 
 function renderOrgCharts() {
-  const LIC = "var(--s1)", UN = "var(--s2)";
   const cards = state.orgs.filter(o => state.inv[o.id]?.length).map(o => {
+    const cov = coverage(o.id), c = cov?.groups ? cov : null;
     const by = {};
-    for (const d of state.inv[o.id]) { const f = familyOf(d); const r = by[f] ||= { lic: 0, un: 0 }; d.networkId ? r.lic++ : r.un++; }
+    for (const d of state.inv[o.id]) {
+      const f = familyOf(d), r = by[f] ||= { lic: 0, unlic: 0, unknown: 0, none: 0 };
+      r[!d.networkId ? "none" : !c ? "unknown" : "lic"]++;
+    }
+    if (c) for (const f in by) by[f].unlic = covCounts(c, f).unlicensed, by[f].lic -= by[f].unlic;
     const fams = Object.keys(by).sort(famSort);
-    const max = Math.max(...fams.map(f => by[f].lic + by[f].un));
-    const s = summarise(state.inv[o.id]);
+    const sum = r => r.lic + r.unlic + r.unknown + r.none;
+    const max = Math.max(...fams.map(f => sum(by[f])));
     const rows = fams.map(f => {
-      const r = by[f], t = r.lic + r.un;
+      const r = by[f], t = sum(r), tip = (label, n) => `<strong>${esc(f)}</strong><br>${label}: ${n} of ${t} (${fmtPct(pct(n, t))})`;
       return `<div class="hrow"><span class="lbl"><strong>${esc(f)}</strong></span>
-        ${hbar([{ n: r.lic, color: LIC, tip: `<strong>${esc(f)}</strong><br>Licensed (in a network): ${r.lic} of ${t} (${fmtPct(pct(r.lic, t))})` },
-                { n: r.un, color: UN, tip: `<strong>${esc(f)}</strong><br>Not in a network: ${r.un} of ${t} (${fmtPct(pct(r.un, t))})` }], max)}
-        <span class="val">${r.lic} / ${r.un}</span></div>`;
+        ${hbar([{ n: r.lic, color: SEG.lic, tip: tip("Licensed", r.lic) }, { n: r.unlic, color: SEG.unlic, tip: tip("Unlicensed", r.unlic) },
+                { n: r.unknown, color: SEG.unknown, tip: tip("Deployed, license not checked", r.unknown) }, { n: r.none, color: SEG.none, tip: tip("Not in a network", r.none) }], max)}
+        <span class="val">${t}</span></div>`;
     }).join("");
+    const s = summarise(state.inv[o.id]);
     return `<div class="orgchart" data-org="${esc(o.id)}"><h3>${esc(o.name)}</h3>
-      <div class="s">${s.deployed} licensed · ${s.unassigned} not in a network · ${s.total} in inventory</div>${rows}</div>`;
+      <div class="s">${c ? `${c.licensed} licensed · <span class="${c.unlicensed ? "err" : ""}">${c.unlicensed} unlicensed</span>` : `${s.deployed} deployed`} · ${s.unassigned} not in a network</div>${rows}</div>`;
   }).join("");
   if (!cards) return "";
-  return `<section class="card viz"><h2>Licensed vs not in a network, by product family
-    ${legend([["Licensed (in a network)", LIC], ["Not in a network", UN]])}</h2>
+  return `<section class="card"><h2>By product family
+    ${legend([["Licensed", SEG.lic], ["Unlicensed", SEG.unlic], ["Not in a network", SEG.none]])}</h2>
     <div class="orgcharts">${cards}</div>
-    <div class="body note" style="padding-top:0">Numbers on the right are licensed / not in a network. Hover a bar for detail; click an organization to open it.</div></section>`;
+    <div class="body note" style="padding-top:0">Numbers on the right are total devices. Hover a bar for detail; click an organization to open it.</div></section>`;
 }
 
 function renderNetworkChart(id, all) {
@@ -380,7 +533,7 @@ function renderNetworkChart(id, all) {
   const nNets = rows.filter(r => !r.none).length;
   const more = shown.length < rows.length || state.showAllNets && rows.length > LIMIT + 1
     ? `<button id="allnets" style="margin:6px 6px 0">${state.showAllNets ? "Show top 15" : `Show all ${nNets} networks`}</button>` : "";
-  return `<section class="card viz"><h2>Devices by network <span class="sub">${nNets} network${nNets === 1 ? "" : "s"}${fam ? ` · ${esc(fam)} only` : ""} · devices in a network are licensed</span>
+  return `<section class="card viz"><h2>Devices by network <span class="sub">${nNets} network${nNets === 1 ? "" : "s"}${fam ? ` · ${esc(fam)} only` : ""} · devices in a network need a license</span>
     ${legend(fams.map(f => [f, famColor(f)]))}</h2>
     <div class="chartbody">${html}${more}</div></section>`;
 }
@@ -481,15 +634,20 @@ function renderOrg(id) {
   const chips = [["", "All", all.length], ...Object.keys(famCount).sort().map(f => [f, f, famCount[f]])]
     .map(([v, label, n]) => `<button class="chip ${fam === v ? "on" : ""}" data-fam="${esc(v)}">${esc(label)} <span>${n}</span></button>`).join("");
 
-  const allLicensed = state.orgs.reduce((n, o) => n + (state.inv[o.id]?.filter(x => x.networkId).length || 0), 0);
+  const cov = coverage(id), c = cov?.groups ? covCounts(cov, fam) : null;
 
   return crumbs + `
   <div class="chips">${chips}</div>
   <div class="tiles">
-    <div class="tile"><div class="k">Licensed devices</div><div class="v">${s.deployed}</div>
-      <div class="s">Deployed in a network${!fam && allLicensed ? ` · ${fmtPct(pct(s.deployed, allLicensed))} of all orgs' licensed devices` : ""}</div></div>
     <div class="tile"><div class="k">Inventory</div><div class="v">${s.total}</div>
-      <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""} · ${s.unassigned} not in a network</div></div>
+      <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""}</div></div>
+    <div class="tile"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(s.deployed, s.total))} of inventory</span></div><div class="v">${s.deployed}</div>
+      <div class="s">In a network, so each needs a license · ${s.unassigned} not in a network</div></div>
+    <div class="tile"><div class="k">Licensed <span class="pc">· ${c ? fmtPct(pct(c.licensed, c.deployed)) : "—"} of deployed</span></div><div class="v">${c ? c.licensed : "—"}</div>
+      <div class="s">${c ? "Covered by an active license" : cov?.err ? `<span class="err">${esc(cov.err)}</span>` : "Checking…"}</div></div>
+    <div class="tile ${c?.unlicensed ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${c ? fmtPct(pct(c.unlicensed, c.deployed)) : "—"} of deployed</span></div><div class="v">${c ? c.unlicensed : "—"}</div>
+      <div class="s">${!c ? "" : c.unlicensed ? "Deployed with no license to cover them" : "Every deployed device is covered"}</div>
+      ${c?.unlicensed ? `<a class="go" href="${unlicensedHref(id)}">See which networks →</a>` : ""}</div>
     <div class="tile"><div class="k">Org license status</div><div class="v" style="font-size:16px">${modelPill(d.model)} ${d.overview ? statusPill(d.overview.status) : ""}</div>
       <div class="s">${esc(licSummaryLine(d))}</div></div>
   </div>
@@ -501,13 +659,72 @@ function renderOrg(id) {
       <input id="q" placeholder="Search serial, model, name, network" value="${esc(state.q || "")}" size="26">
       ${networkSelect(id, all)}
       ${modelSelect(all)}
-      <select id="fdep" title="Licensed status">${[["all", "All devices"], ["deployed", "Licensed (in a network)"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select id="fdep" title="Status">${[["all", "All devices"], ["deployed", "Deployed (in a network)"], ["licensed", "Licensed"], ["unlicensed", "Unlicensed or over limit"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
       <button id="clearfilters" ${activeFilters(id).length ? "" : "hidden"}>Clear filters</button>
       <button id="csv" class="primary" title="Exports exactly the rows shown, with the filters and sort you've chosen">Export CSV</button>
     </span></h2>
     <div id="devtable"></div>
     <div class="body note">License class: <strong>Enterprise</strong> or <strong>Advantage</strong>. On co-term orgs, editions above Enterprise (Advanced, Advanced Security, SD-WAN Plus) show as Advantage — hover the class to see the original edition. Subscription orgs show the Essentials / Advantage tier of their active entitlements. License SKU follows the Meraki subscription licensing docs. <strong>DNA*</strong> (Catalyst C9200/C9300): per the MS doc footnote, no additional Meraki subscription license is needed in cloud monitoring or cloud management with configuration source: device; fully Meraki-managed, the listed SKU applies.</div>
   </section>`;
+}
+
+// Landing page: which networks hold devices that no license covers
+function renderUnlicensed(id) {
+  const d = state.detail[id];
+  const org = d?.org || state.orgs.find(o => o.id === id) || { id, name: id };
+  const crumbs = `<div class="crumbs"><a data-home>All organizations</a> / <a data-org="${esc(org.id)}">${esc(org.name)}</a> / <strong>Unlicensed devices</strong></div>`;
+  if (!d) return crumbs + `<section class="card"><div class="body"><span class="spinner"></span> Loading organization…</div></section>`;
+  const cov = coverage(id);
+  if (!cov?.groups) return crumbs + `<section class="card"><div class="body err">Couldn't check licenses: ${esc(cov?.err || "no inventory")}</div></section>`;
+  if (!cov.unlicensed) return crumbs + `<section class="card"><div class="body">All ${cov.deployed} deployed devices are covered by an active license. Nothing to fix here.</div></section>`;
+
+  const devs = orgDevices(id).filter(x => x.cov === "unlicensed" || x.cov === "over");
+  const pooled = cov.model !== "per-device";
+  const anyOver = devs.some(x => x.cov === "over");
+  const short = cov.groups.filter(g => g.short);
+
+  const byNet = {};
+  for (const x of devs) {
+    const n = byNet[x.networkId] ||= { id: x.networkId, name: x.net, devs: [], unlic: 0, over: 0, fams: {} };
+    n.devs.push(x); n[x.cov === "over" ? "over" : "unlic"]++;
+    n.fams[x.fam] = (n.fams[x.fam] || 0) + 1;
+  }
+  const nets = Object.values(byNet);
+  const netCols = [
+    { key: "name", label: "Network", val: r => r.name },
+    { key: "n", label: "Affected devices", num: 1, val: r => r.devs.length },
+    { key: "unlic", label: "Unlicensed", num: 1, val: r => r.unlic },
+    ...(anyOver ? [{ key: "over", label: "Over limit", num: 1, val: r => r.over }] : []),
+    { key: "fams", label: "Product families", val: r => Object.keys(r.fams).sort(famSort).join(" ") },
+    { key: "go", label: "", val: () => "" },
+  ];
+  if (!state.sort.unets) state.sort.unets = { key: "n", dir: -1 };
+  const famTxt = fams => Object.keys(fams).sort(famSort).map(f => `${esc(f)} ×${fams[f]}`).join(" · ");
+
+  return crumbs + `
+  <section class="card"><div class="body">
+    <p class="intro"><strong>${cov.unlicensed} of ${cov.deployed}</strong> devices in networks (${fmtPct(pct(cov.unlicensed, cov.deployed))}) aren't covered by an active license.</p>
+    <div class="note">${cov.reason ? esc(cov.reason) + " " : ""}A device needs a license once it's in a network. ${pooled && anyOver
+      ? "This org's licenses are pooled, so when it holds fewer licenses than devices of a type, Meraki doesn't say which devices are the uncovered ones. Every device of that type is listed as <strong>over limit</strong>, and any of them could be the ones without a license."
+      : "The devices below have no license at all."}</div>
+  </div></section>
+
+  <section class="card"><h2>What's missing <span class="sub">Licenses needed vs. held, by license type</span></h2>
+    ${sortable("ushort", short, [
+      { key: "key", label: "License", val: g => g.key }, { key: "fam", label: "Family", val: g => g.fam },
+      { key: "need", label: "Devices in networks", num: 1, val: g => g.need }, { key: "have", label: "Active licenses held", num: 1, val: g => g.have },
+      { key: "short", label: "Short by", num: 1, val: g => g.short }],
+      g => `<td class="mono">${esc(g.key)}</td><td>${esc([...new Set(g.devs.map(x => x.fam))].sort(famSort).join(", "))}</td><td class="num">${g.need}</td><td class="num">${g.have}</td><td class="num"><strong class="err">${g.short}</strong></td>`)}
+  </section>
+
+  <section class="card"><h2>Networks with unlicensed devices <span class="sub">${nets.length} network${nets.length === 1 ? "" : "s"} · click one to see its devices</span></h2>
+    ${sortable("unets", nets, netCols, r => `
+      <td><strong>${esc(r.name)}</strong></td><td class="num">${r.devs.length}</td>
+      <td class="num">${r.unlic || '<span class="muted">0</span>'}</td>${anyOver ? `<td class="num">${r.over || '<span class="muted">0</span>'}</td>` : ""}
+      <td>${famTxt(r.fams)}</td><td><button class="go" style="padding:2px 10px">Show devices →</button></td>`,
+      r => `class="click" data-unlicnet="${esc(r.id)}"`)}
+  </section>
+  <div class="note">Need the full list? <a href="#" data-unlicnet="">Show every unlicensed device</a> on the organization page, with CSV export.</div>`;
 }
 
 function licSummaryLine(d) {
@@ -525,8 +742,9 @@ function orgDevices(id) {
   const nets = Object.fromEntries((d.networks || []).map(n => [n.id, n.name]));
   const stat = Object.fromEntries((d.statuses || []).map(s => [s.serial, s.status]));
   const ctx = tierContext(d);
+  const cov = coverage(id)?.status || {};
   return d.inventory.map(x => {
-    const r = { ...x, lic: classifyModel(x.model), fam: familyOf(x), net: x.networkId ? (nets[x.networkId] || x.networkId) : "", st: stat[x.serial] || "" };
+    const r = { ...x, lic: classifyModel(x.model), fam: familyOf(x), net: x.networkId ? (nets[x.networkId] || x.networkId) : "", st: stat[x.serial] || "", cov: cov[x.serial] || "" };
     r.license = deviceLicense(d, ctx, r);
     return r;
   });
@@ -537,7 +755,8 @@ function filteredDevs(id) {
     .filter(x => !state.ffam || x.fam === state.ffam)
     .filter(x => !state.fnet || (state.fnet === "__none__" ? !x.networkId : x.networkId === state.fnet))
     .filter(x => !state.fmodel || x.model === state.fmodel)
-    .filter(x => (state.fdep === "deployed" ? x.networkId : state.fdep === "unassigned" ? !x.networkId : true))
+    .filter(x => (state.fdep === "deployed" ? x.networkId : state.fdep === "unassigned" ? !x.networkId
+      : state.fdep === "licensed" ? x.cov === "licensed" : state.fdep === "unlicensed" ? x.cov === "unlicensed" || x.cov === "over" : true))
     .filter(x => !q || [x.serial, x.model, x.name, x.net, x.license.sku, x.license.tier].join(" ").toLowerCase().includes(q));
 }
 const DEV_COLS = [
@@ -547,6 +766,7 @@ const DEV_COLS = [
   { key: "net", label: "Network", val: r => r.net },
   { key: "dep", label: "Deployed", val: r => r.networkId ? 1 : 0 },
   { key: "st", label: "Online", val: r => r.st },
+  { key: "cov", label: "Licensed", val: r => r.cov },
   { key: "tier", label: "License class", val: r => r.license.tier },
   { key: "sku", label: "License SKU", val: r => r.license.sku },
 ];
@@ -574,6 +794,8 @@ function activeFilters(id) {
   if (state.fmodel) out.push(["Model", state.fmodel]);
   if (state.fdep === "deployed") out.push(["Status", "Licensed"]);
   if (state.fdep === "unassigned") out.push(["Status", "Not in a network"]);
+  if (state.fdep === "licensed") out.push(["Status", "Licensed"]);
+  if (state.fdep === "unlicensed") out.push(["Status", "Unlicensed"]);
   if (state.q) out.push(["Search", state.q]);
   return out;
 }
@@ -597,6 +819,7 @@ function renderDevTable(id) {
     <td>${r.net ? esc(r.net) : '<span class="muted">—</span>'}</td>
     <td>${r.networkId ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no</span>'}</td>
     <td>${r.st ? statusPill(r.st) : '<span class="muted">—</span>'}</td>
+    <td>${r.networkId ? covPill(r.cov) : '<span class="muted">—</span>'}</td>
     <td>${r.networkId ? `<span ${r.license.note ? `data-tip="${esc(esc(r.license.note))}" style="cursor:help"` : ""}>${tierPill(r.license.tier)}</span>` : '<span class="muted">not licensed</span>'}</td>
     <td class="mono ${r.networkId ? "" : "muted"}" title="${esc(r.license.note || r.lic.note || "")}">${esc(r.license.sku)}${r.lic.inferred ? ' <span class="pill warn">inferred</span>' : ""}${r.lic.catalyst ? ` <a class="pill info" style="text-decoration:none" href="${MS_DOC}" target="_blank" rel="noopener" data-tip="${esc(dnaTip(r.license.sku))}">DNA*</a>` : ""}</td>`);
 }
@@ -615,9 +838,9 @@ const MS_DOC = "https://documentation.meraki.com/Platform_Management/Product_Inf
 function exportCsv(id) {
   const d = state.detail[id];
   const rows = sortedDevs(id);
-  const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "licenseClass", "licenseSku", "skuInferred"];
+  const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "licensed", "licenseClass", "licenseSku", "skuInferred"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, r.networkId ? r.license.tier : "not licensed", r.license.sku, r.lic.inferred].map(q).join(",")));
+  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, COV_LABEL[r.cov] || "", r.networkId ? r.license.tier : "not licensed", r.license.sku, r.lic.inferred].map(q).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
   const tag = activeFilters(id).map(([, v]) => v).join("-").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80);
@@ -647,8 +870,9 @@ function render() {
   const focus = document.activeElement?.id, caret = document.activeElement?.selectionStart;
   $("#app").innerHTML = state.needKey ? renderKeyScreen()
     : state.error && !state.orgs.length ? `<section class="card"><div class="body err">Failed to load: ${esc(state.error)}</div></section>`
-    : id ? renderOrg(id) : renderOverview();
+    : id ? (view() === "unlicensed" ? renderUnlicensed(id) : renderOrg(id)) : renderOverview();
   if (id && state.detail[id]?.inventory) renderDevTable(id);
+  if (state.jumpDevices && $("#devices")) { state.jumpDevices = false; $("#devices").scrollIntoView({ block: "start" }); }
   if (focus && $("#" + focus)) { $("#" + focus).focus(); if (caret != null) try { $("#" + focus).setSelectionRange(caret, caret); } catch {} }
   setStatus(state.loading);
 }
@@ -662,6 +886,17 @@ document.addEventListener("click", e => {
     t === "devs" ? renderDevTable(route()) : render();
     return;
   }
+  // links and buttons inside a clickable org row go where they say, not to the org
+  const un = e.target.closest("[data-unlicnet]");
+  if (un) {
+    e.preventDefault();
+    state.pending = { fnet: un.dataset.unlicnet, fdep: "unlicensed" };
+    location.hash = "org=" + encodeURIComponent(route());
+    return;
+  }
+  const jump = e.target.closest("[data-jump]");
+  if (jump) { e.preventDefault(); $("#" + jump.dataset.jump)?.scrollIntoView({ behavior: "smooth" }); return; }
+  if (e.target.closest("a[href^='#org=']")) return;
   const tr = e.target.closest("[data-org]");
   if (tr) { location.hash = "org=" + encodeURIComponent(tr.dataset.org); return; }
   const net = e.target.closest("[data-net]");
@@ -694,6 +929,8 @@ document.addEventListener("change", e => {
 });
 window.addEventListener("hashchange", () => {
   state.q = ""; state.fdep = "all"; state.ffam = ""; state.fnet = ""; state.fmodel = ""; state.showAllNets = false;
+  if (state.pending) { Object.assign(state, state.pending); state.pending = null; state.jumpDevices = true; }
+  scrollTo(0, 0);
   render();
   const id = route();
   if (id) refresh();
