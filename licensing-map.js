@@ -118,7 +118,13 @@ function managementMode(dev) {
   if (dev.productType === "wirelessController" || /^C?W?9800|^CW9800/.test(m))
     return { mode: "monitored", label: "Device (monitoring)", consumes: false, note: "Catalyst 9800 wireless controller with config source: device (monitoring): it keeps managing its APs on-prem and sends telemetry to Dashboard. No Meraki license." };
   if (/monitor|device/i.test(cfg)) {
-    if (/^CW917/.test(m)) return { mode: "monitored", label: "Device (monitoring)", consumes: true, note: "Config source: device (monitoring), but Wi-Fi 7 APs consume a subscription license even so." };
+    // Exceptions: these still consume a license with config source: device (monitoring). `why` is shown on hover.
+    if (/^CW917/.test(m)) return { mode: "monitored", label: "Device (monitoring)", consumes: true,
+      note: "Config source: device (monitoring), but Wi-Fi 7 APs still consume a license.",
+      why: "Wi-Fi 7 APs (CW917x) are the exception to the monitoring rule: Meraki's Cloud Monitoring for Wireless Requirements says they \"will consume subscription licenses within dashboard even when in Cloud Monitoring mode\". So this AP needs a license even though it's managed by the 9800 controller." };
+    if (/-MR?$/i.test(String(dev.sku || ""))) return { mode: "monitored", label: "Device (monitoring)", consumes: true,
+      note: "Config source: device (monitoring), but Meraki-native (-M / -MR) SKUs still consume a license.",
+      why: `This was bought as a Meraki-native SKU (${dev.sku}). Meraki-native SKUs "require a standard Meraki-capable license for operation" and aren't covered by Cisco's Cloud Entitlement for DNA, so it needs a license even with config source: device (monitoring).` };
     return { mode: "monitored", label: "Device (monitoring)", consumes: false, note: `Config source: device (monitoring); the API reports "Cloud configuration: ${cfg}". Managed on-prem; Dashboard only receives telemetry, so no Meraki license is consumed. Moving it to config source: cloud would make it consume one.` };
   }
   const offer = catalyst && !/-MR?$/i.test(String(dev.sku || dev.model)) && /^(C9[235]\d0|C91\d\d|CW916)/.test(m);

@@ -385,9 +385,13 @@ const COV_TIP = {
   over: "The org has fewer licenses than devices of this type. Licenses are pooled, so Meraki doesn't say which devices are the uncovered ones.",
   na: "Config source: device (monitoring): managed on-prem (or a 9800 controller), so it doesn't consume a Meraki license.",
 };
-function covPill(st) {
+// Tooltip explaining why a device with config source: device (monitoring) still needs a license
+const whyTip = mgmt => `<strong>Why this needs a license with config source: device (monitoring)</strong><p>${esc(mgmt.why)}</p>`;
+function covPill(st, mgmt) {
   if (!st) return '<span class="muted">—</span>';
-  return `<span class="pill ${st === "licensed" ? "ok" : st === "na" ? "" : st === "over" ? "warn" : "bad"}" data-tip="${esc(COV_TIP[st])}" style="cursor:help">${COV_LABEL[st]}</span>`;
+  const why = mgmt?.mode === "monitored" && mgmt.consumes && mgmt.why;
+  const tip = why ? whyTip(mgmt) + `<p class="muted">${esc(COV_TIP[st])}</p>` : esc(COV_TIP[st]);
+  return `<span class="pill ${st === "licensed" ? "ok" : st === "na" ? "" : st === "over" ? "warn" : "bad"}" data-tip="${esc(tip)}" style="cursor:help">${COV_LABEL[st]}${why ? " ⓘ" : ""}</span>`;
 }
 
 // ---------- rendering ----------
@@ -746,6 +750,10 @@ function renderUnlicensed(id) {
     <div class="note">${cov.reason ? esc(cov.reason) + " " : ""}A device needs a license once it's in a network. ${pooled && anyOver
       ? "This org's licenses are pooled, so when it holds fewer licenses than devices of a type, Meraki doesn't say which devices are the uncovered ones. Every device of that type is listed as <strong>over limit</strong>, and any of them could be the ones without a license."
       : "The devices below have no license at all."}</div>
+    ${(() => {
+      const exc = devs.filter(x => x.mgmt.mode === "monitored" && x.mgmt.why);
+      return exc.length ? `<div class="note" style="margin-top:6px"><span data-tip="${esc(whyTip(exc[0].mgmt))}" style="cursor:help;border-bottom:1px dotted">${exc.length} of them ha${exc.length === 1 ? "s" : "ve"} config source: device (monitoring) but still need${exc.length === 1 ? "s" : ""} a license ⓘ</span>: ${esc([...new Set(exc.map(x => x.model))].join(", "))}.</div>` : "";
+    })()}
   </div></section>
 
   <section class="card"><h2>What's missing <span class="sub">Licenses needed vs. held, by license type</span></h2>
@@ -861,8 +869,8 @@ function renderDevTable(id) {
     <td>${r.net ? esc(r.net) : '<span class="muted">—</span>'}</td>
     <td>${r.networkId ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no</span>'}</td>
     <td>${r.st ? statusPill(r.st) : '<span class="muted">—</span>'}</td>
-    <td><span class="pill ${r.mgmt.mode === "monitored" ? "" : "info"}" ${r.mgmt.note ? `data-tip="${esc(esc(r.mgmt.note))}" style="cursor:help"` : ""}>${r.mgmt.label}</span></td>
-    <td>${r.networkId ? covPill(r.cov) : '<span class="muted">—</span>'}</td>
+    <td><span class="pill ${r.mgmt.mode === "monitored" ? "" : "info"}" ${r.mgmt.note ? `data-tip="${esc(r.mgmt.why ? whyTip(r.mgmt) : esc(r.mgmt.note))}" style="cursor:help"` : ""}>${r.mgmt.label}${r.mgmt.why ? " ⓘ" : ""}</span></td>
+    <td>${r.networkId ? covPill(r.cov, r.mgmt) : '<span class="muted">—</span>'}</td>
     <td>${r.cov === "na" ? '<span class="muted">not needed</span>' : r.networkId ? `<span ${r.license.note ? `data-tip="${esc(esc(r.license.note))}" style="cursor:help"` : ""}>${tierPill(r.license.tier)}</span>` : '<span class="muted">not licensed</span>'}</td>
     <td class="mono ${r.networkId ? "" : "muted"}" title="${esc(r.license.note || r.lic.note || "")}">${esc(r.license.sku)}${(r.license.inferred ?? r.lic.inferred) ? ' <span class="pill warn">inferred</span>' : ""}${r.lic.catalyst ? ` <a class="pill info" style="text-decoration:none" href="${MS_DOC}" target="_blank" rel="noopener" data-tip="${esc(dnaTip(r.license.sku))}">DNA*</a>` : ""}</td>`);
 }
