@@ -447,7 +447,7 @@ function renderOverview() {
     <div class="tile"><div class="k">Inventory</div><div class="v">${tot.total}</div>
       <div class="s">Every device claimed across ${state.orgs.length} organization${state.orgs.length === 1 ? "" : "s"}</div></div>
     <div class="tile"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(tot.deployed, tot.total))} of inventory</span></div><div class="v">${tot.deployed}</div>
-      <div class="s">In a network${mon ? ` · ${mon} with config source: device (monitoring), so no license needed` : ", so each needs a license"} · ${tot.unassigned} sitting in inventory</div></div>
+      <div class="s">In a network${mon ? ` · ${mon} device${mon === 1 ? "" : "s"} in config source: device` : ""}</div></div>
     <div class="tile"><div class="k">Licensed <span class="pc">· ${covDep ? fmtPct(pct(lic, covDep)) : "—"} of ${mon ? "those needing one" : "deployed"}</span></div><div class="v">${covered.length ? lic : "—"}</div>
       <div class="s">Deployed and covered by an active license${pending ? ' · <span class="spinner"></span> checking' : ""}</div></div>
     <div class="tile ${unlic ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${covDep ? fmtPct(pct(unlic, covDep)) : "—"} of ${mon ? "those needing one" : "deployed"}</span></div><div class="v">${covered.length ? unlic : "—"}</div>
@@ -692,7 +692,7 @@ function renderOrg(id) {
     <div class="${tileCls("all")}" data-tile="all" title="Show all devices"><div class="k">Inventory</div><div class="v">${s.total}</div>
       <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""}</div></div>
     <div class="${tileCls("deployed")}" data-tile="deployed" title="Show devices in a network"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(s.deployed, s.total))} of inventory</span></div><div class="v">${s.deployed}</div>
-      <div class="s">In a network${c?.monitored ? ` · <a class="tilelink ${tileOn("monitoring") ? "on" : ""}" data-tile="monitoring" title="Show devices with config source: device (monitoring)">${c.monitored} with config source: device (monitoring)</a>, so no license needed` : ", so each needs a license"} · ${s.unassigned} not in a network</div></div>
+      <div class="s">In a network${c?.monitored ? ` · <a class="tilelink ${tileOn("monitoring") ? "on" : ""}" data-tile="monitoring" title="Show devices with config source: device (monitoring)">${c.monitored} device${c.monitored === 1 ? "" : "s"} in config source: device</a>` : ""}</div></div>
     <div class="${tileCls("licensed")}" data-tile="licensed" title="Show licensed devices"><div class="k">Licensed <span class="pc">· ${c ? fmtPct(pct(c.licensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.licensed : "—"}</div>
       <div class="s">${c ? "Covered by an active license" : cov?.err ? `<span class="err">${esc(cov.err)}</span>` : "Checking…"}</div></div>
     <div class="${tileCls("unlicensed")} ${c?.unlicensed ? "alert" : ""}" data-tile="unlicensed" title="Show unlicensed devices"><div class="k">Unlicensed <span class="pc">· ${c ? fmtPct(pct(c.unlicensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.unlicensed : "—"}</div>
