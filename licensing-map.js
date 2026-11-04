@@ -156,9 +156,10 @@ function cotermLicense(model, family) {
   let x;
   if (/^C9800/.test(m)) return r(m, null, null, "Catalyst 9800 wireless controller: not licensed through Meraki co-term");
   if (/^C91\d\d/.test(m)) return r(m, null, null, "Catalyst AP managed by a 9800 controller: not licensed through Meraki co-term");
-  // Wi-Fi 7 (CW917x) has its own unified license (LIC-CW Essentials / Advantage); it doesn't draw on the MR license
-  if (/^CW917/.test(m)) return r("CW", "cns", code => code === "ADV" ? "LIC-CW-A" : "LIC-CW-E",
-    "Wi-Fi 7 uses its own unified license (LIC-CW), separate from the MR licenses");
+  // In a co-term org, Wi-Fi 7 (CW917x) consumes an MR license like any other AP and takes the org's MR edition.
+  // (Subscription orgs use the unified LIC-CW license instead; see LICENSE_CLASSES.)
+  if (/^CW917/.test(m)) return r("MR", "mr", code => code === "ADV" ? "LIC-MR-ADV" : "LIC-ENT",
+    "Wi-Fi 7 AP: in a co-term org it consumes an MR license like the other APs and takes the org's MR edition (subscription orgs use LIC-CW)");
   if (family === "MR" || family === "CW" || /^(MR\d|CW916)/.test(m))
     return r("MR", "mr", code => code === "ADV" ? "LIC-MR-ADV" : "LIC-ENT", "MR licenses are model-agnostic");
   const uni = classifyModel(model);
