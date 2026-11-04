@@ -443,7 +443,7 @@ function renderOverview() {
     { key: "dep", label: "Deployed (in a network)", val: r => r.dep },
     { key: "licp", label: "Licensed (of those needing one)", val: r => r.licp },
     { key: "unlic", label: "Unlicensed", num: 1, val: r => r.c?.unlicensed ?? -1 },
-    { key: "share", label: "Share of all deployed", val: r => r.share },
+    { key: "share", label: "% of deployed devices across all orgs", val: r => r.share },
   ];
   const go = unlicOrgs.length === 1 ? `<a class="go" href="${unlicensedHref(unlicOrgs[0].o.id)}">See which networks →</a>`
     : unlicOrgs.length ? `<a class="go" href="#orgtable" data-jump="orgtable">Pick an organization ↓</a>` : "";
