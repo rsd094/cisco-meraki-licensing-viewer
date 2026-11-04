@@ -68,6 +68,7 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .bar { flex: 1; height: 8px; background: var(--bar); border-radius: 4px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
 .bar.ok > i { background: var(--ok); }
+.bar.lic > i { background: var(--seg-lic); }
 .muted { color: var(--muted); }
 .err { color: var(--bad); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; }
@@ -82,9 +83,9 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .tile.alert .v { color: var(--bad); }
 .tile .go { margin-top: 8px; font-size: 12.5px; padding: 4px 10px; }
 .tile .k .pc { text-transform: none; letter-spacing: 0; }
-:root { --seg-none: #bcc4cf; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --seg-none: #4a5361; } }
-:root[data-theme="dark"] { --seg-none: #4a5361; }
+:root { --seg-none: #bcc4cf; --seg-lic: #2a78d6; --seg-unlic: #eb6834; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --seg-none: #4a5361; --seg-lic: #3987e5; --seg-unlic: #d95926; } }
+:root[data-theme="dark"] { --seg-none: #4a5361; --seg-lic: #3987e5; --seg-unlic: #d95926; }
 .split { padding: 12px 14px 14px; }
 .split .track { height: 18px; }
 .split .legend { margin-top: 8px; }
@@ -432,7 +433,7 @@ function renderOverview() {
       <td>${modelPill(r.o.licensing?.model)}</td>
       ${r.s ? `<td class="num">${r.s.total}</td>
         <td>${barN(r.s.deployed, r.dep, "")}</td>
-        <td>${r.c ? barN(r.c.licensed, r.licp, "ok") : covNote(r.cov)}</td>
+        <td>${r.c ? barN(r.c.licensed, r.licp, "lic") : covNote(r.cov)}</td>
         <td class="num">${!r.c ? "" : r.c.unlicensed ? `<a class="go" style="padding:2px 8px" href="${unlicensedHref(r.o.id)}" title="See which networks">${r.c.unlicensed} →</a>` : '<span class="muted">0</span>'}</td>
         <td>${bar(r.share)}</td>`
         : `<td colspan="5" class="${r.err ? "err" : "muted"}">${r.err ? esc(r.err) : '<span class="spinner"></span> loading inventory…'}</td>`}`,
@@ -444,7 +445,7 @@ const barN = (n, v, cls) => `<div class="barwrap"><strong style="min-width:2.5em
 const covNote = cov => !cov ? "" : cov.pending ? '<span class="spinner"></span>' : `<span class="err" title="${esc(cov.err)}">License data unavailable</span>`;
 
 // One bar showing where the whole inventory stands
-const SEG = { lic: "var(--ok)", unlic: "var(--bad)", unknown: "var(--warn)", none: "var(--seg-none)" };
+const SEG = { lic: "var(--seg-lic)", unlic: "var(--seg-unlic)", unknown: "var(--warn)", none: "var(--seg-none)" };
 function renderSplit(total, lic, unlic, unknown, none) {
   if (!total) return "";
   const t = (label, n, base, baseLabel) => `<strong>${label}</strong><br>${n} device${n === 1 ? "" : "s"} · ${fmtPct(pct(n, base))} of ${baseLabel}`;
