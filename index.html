@@ -342,7 +342,7 @@ function coverage(id) {
   for (const x of mon) status[x.serial] = "na";
   const dep = inNet.filter(x => status[x.serial] !== "na");
   const add = (key, x) => (groups[key] ||= { key, fam: x.fam, devs: [], have: 0 }).devs.push(x);
-  let reason = "", exact = null;
+  let reason = "", exact = null, ea = null;
   if (L.model === "co-term") {
     const pool = cotermPool(L.overview?.licensedDeviceCounts);
     const expired = /expired/i.test(L.overview?.status || "");
@@ -357,14 +357,20 @@ function coverage(id) {
     for (const g of Object.values(groups)) g.have = g.devs.filter(x => exact.has(x.serial)).length;
   } else if (L.model === "subscription") {
     const pool = {};
+    let assigned = 0, haveAssigned = false;
     for (const s of L.subscriptions || []) {
       if (s.status && !/active/i.test(s.status)) continue;
       for (const e of s.entitlements || []) {
         const k = String(e.sku || "").toUpperCase().replace(/-[AE]$/, "");
         pool[k] = (pool[k] || 0) + (e.seats?.limit ?? e.quantity ?? 0);
+        if (e.seats?.assigned != null) { assigned += e.seats.assigned; haveAssigned = true; }
       }
     }
     for (const x of dep) add(classifyModel(x.model).sku, x);
+    // EA / subscription utilization: seats in use out of seats held (Meraki's own count when the API gives it)
+    const limit = Object.values(pool).reduce((a, n) => a + n, 0);
+    ea = { limit, used: haveAssigned ? assigned
+      : Object.entries(pool).reduce((a, [k, n]) => a + Math.min(n, groups[k]?.devs.length || 0), 0) };
     for (const g of Object.values(groups)) g.have = g.key === "—" ? g.devs.length : (pool[g.key] || 0); // no SKU listed: nothing to buy
   } else {
     return { err: `“${L.model}” licensing isn't supported` };
@@ -375,7 +381,7 @@ function coverage(id) {
     for (const x of g.devs) status[x.serial] = exact ? (exact.has(x.serial) ? "licensed" : "unlicensed")
       : !g.short ? "licensed" : g.have ? "over" : "unlicensed";
   }
-  return { model: L.model, groups: list, mon, status, reason, ...covCounts({ groups: list, mon }) };
+  return { model: L.model, groups: list, mon, status, reason, ea, ...covCounts({ groups: list, mon }) };
 }
 // Counts for the whole org, or one product family
 function covCounts(cov, fam) {
@@ -427,7 +433,10 @@ function renderOverview() {
     const s = inv ? summarise(inv) : null;
     const cov = coverage(o.id);
     const c = cov?.groups ? cov : null;
-    return { o, s, cov, c, err: state.invErr[o.id], dep: s ? pct(s.deployed, s.total) : -1, licp: c ? pct(c.licensed, c.deployed) : -1, share: s ? pct(s.deployed, tot.deployed) : -1 };
+    // subscription / EA orgs show how much of the EA is utilized; co-term orgs their share of all deployed devices
+    const eaPct = c?.ea?.limit ? pct(c.ea.used, c.ea.limit) : -1;
+    return { o, s, cov, c, err: state.invErr[o.id], dep: s ? pct(s.deployed, s.total) : -1, licp: c ? pct(c.licensed, c.deployed) : -1,
+      share: o.licensing?.model === "subscription" ? eaPct : s ? pct(s.deployed, tot.deployed) : -1 };
   });
   // Coverage totals only count orgs whose licensing loaded
   const covered = rows.filter(r => r.c);
@@ -443,7 +452,7 @@ function renderOverview() {
     { key: "dep", label: "Deployed (in a network)", val: r => r.dep },
     { key: "licp", label: "Licensed (of those needing one)", val: r => r.licp },
     { key: "unlic", label: "Unlicensed", num: 1, val: r => r.c?.unlicensed ?? -1 },
-    { key: "share", label: "% of deployed devices across all orgs", val: r => r.share },
+    { key: "share", label: shareLabel(state.orgs), val: r => r.share },
   ];
   const go = unlicOrgs.length === 1 ? `<a class="go" href="${unlicensedHref(unlicOrgs[0].o.id)}">See which networks →</a>`
     : unlicOrgs.length ? `<a class="go" href="#orgtable" data-jump="orgtable">Pick an organization ↓</a>` : "";
@@ -470,11 +479,23 @@ function renderOverview() {
         <td>${barN(r.s.deployed, r.dep, "")}</td>
         <td>${r.c ? barN(r.c.licensed, r.licp, "lic") : covNote(r.cov)}</td>
         <td class="num">${!r.c ? "" : r.c.unlicensed ? `<a class="go" style="padding:2px 8px" href="${unlicensedHref(r.o.id)}" title="See which networks">${r.c.unlicensed} →</a>` : '<span class="muted">0</span>'}</td>
-        <td>${bar(r.share)}</td>`
+        <td>${shareCell(r)}</td>`
         : `<td colspan="5" class="${r.err ? "err" : "muted"}">${r.err ? esc(r.err) : '<span class="spinner"></span> loading inventory…'}</td>`}`,
       r => `class="click" data-org="${esc(r.o.id)}"`)}
   </section>
   ${renderOrgCharts()}`;
+}
+// Column title: co-term orgs show their share of all deployed devices, subscription (EA) orgs their EA utilization
+function shareLabel(orgs) {
+  const sub = orgs.filter(o => o.licensing?.model === "subscription").length;
+  return !sub ? "% of deployed devices across all orgs" : sub === orgs.length ? "% of EA utilized" : "% of deployed devices across all orgs / % of EA utilized";
+}
+function shareCell(r) {
+  if (r.o.licensing?.model !== "subscription") return bar(r.share);
+  const u = r.c?.ea;
+  if (!u) return r.c ? "" : covNote(r.cov);
+  if (!u.limit) return '<span class="muted">No EA seats</span>';
+  return `${bar(r.share, "lic")}<div class="note" style="margin-top:1px">% of EA utilized · ${u.used} of ${u.limit} seats</div>`;
 }
 const barN = (n, v, cls) => `<div class="barwrap"><strong style="min-width:2.5em;text-align:right">${n}</strong><div class="bar ${cls}"><i style="width:${Math.min(100, v)}%"></i></div><span>${fmtPct(v)}</span></div>`;
 const covNote = cov => !cov ? "" : cov.pending ? '<span class="spinner"></span>' : `<span class="err" title="${esc(cov.err)}">License data unavailable</span>`;
