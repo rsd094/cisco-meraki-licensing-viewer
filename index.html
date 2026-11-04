@@ -80,6 +80,8 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .chip.on span { color: #fff; opacity: .8; }
 .tile .v.err { color: var(--bad); }
 .tile.alert { border-color: var(--bad); }
+.notice { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; font-size: 13px; }
+.notice button { border: 0; background: none; color: var(--muted); padding: 2px 6px; }
 .tile.click { cursor: pointer; transition: border-color .15s; }
 .tile.click:hover { border-color: var(--accent); }
 .tile.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
@@ -183,6 +185,7 @@ async function api(path) {
     const msg = body && body.errors ? body.errors.join("; ") : `HTTP ${r.status}`;
     const err = new Error(msg);
     err.auth = r.status === 401;
+    err.notFound = r.status === 404;
     throw err;
   }
   return body;
@@ -206,14 +209,23 @@ const view = () => (location.hash.match(/view=(\w+)/) || [])[1] || "";
 const unlicensedHref = id => `#org=${encodeURIComponent(id)}&view=unlicensed`;
 
 // ---------- data loading ----------
+// An org that returns 404 has been deleted (or the key lost access): drop it and everything cached for it
+function forgetOrg(id, name) {
+  state.orgs = state.orgs.filter(o => o.id !== id);
+  for (const k of ["inv", "invErr", "lic", "licErr", "detail"]) delete state[k][id];
+  state.notice = `“${name || id}” wasn't found in Meraki Dashboard (it may have been deleted), so it's been removed from your organizations.`;
+}
 async function loadOverview() {
   state.orgs = await api("/organizations");
   state.orgs.sort((a, b) => a.name.localeCompare(b.name));
+  // forget data for orgs that are no longer listed
+  const ids = new Set(state.orgs.map(o => o.id));
+  for (const k of ["inv", "invErr", "lic", "licErr", "detail"]) for (const id in state[k]) if (!ids.has(id)) delete state[k][id];
   render();
   await pool(state.orgs, 4, async o => {
     if (o.api && o.api.enabled === false) { state.invErr[o.id] = "API access disabled for this org"; return; }
     try { state.inv[o.id] = await api(`/organizations/${o.id}/inventory/devices`); delete state.invErr[o.id]; }
-    catch (e) { state.invErr[o.id] = e.message; }
+    catch (e) { if (e.notFound) { forgetOrg(o.id, o.name); render(); return; } state.invErr[o.id] = e.message; }
     render();
     try { state.lic[o.id] = await loadLicensing(o); delete state.licErr[o.id]; }
     catch (e) { state.licErr[o.id] = e.message; }
@@ -231,7 +243,14 @@ async function loadLicensing(o) {
 }
 
 async function loadOrg(id) {
-  const org = state.orgs.find(o => o.id === id) || await api(`/organizations/${id}`);
+  const known = state.orgs.find(o => o.id === id);
+  let org;
+  try { org = await api(`/organizations/${id}`); }
+  catch (e) {
+    if (e.notFound) { forgetOrg(id, known?.name); location.hash = ""; return; }
+    if (!known) throw e;
+    org = known;
+  }
   const model = org.licensing?.model || "unknown";
   const d = { org, model, err: {} };
   const tasks = {
@@ -248,9 +267,11 @@ async function loadOrg(id) {
     tasks.subscriptions = () => api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
     tasks.entitlements = () => api(`/administered/licensing/subscription/entitlements`);
   }
+  let gone = false;
   await Promise.all(Object.entries(tasks).map(async ([k, f]) => {
-    try { d[k] = await f(); } catch (e) { d.err[k] = e.message; }
+    try { d[k] = await f(); } catch (e) { d.err[k] = e.message; if (e.notFound && k === "inventory") gone = true; }
   }));
+  if (gone) { forgetOrg(id, org.name); location.hash = ""; return; }
   if (d.inventory) state.inv[id] = d.inventory;
   const licErr = d.err.overview || d.err.licenses || d.err.subscriptions;
   if (licErr) state.licErr[id] = licErr;
@@ -953,12 +974,13 @@ function renderKeyScreen() {
   </div></section>`;
 }
 
+const noticeHtml = () => state.notice ? `<div class="notice">${esc(state.notice)} <button id="dismissnotice" title="Dismiss">✕</button></div>` : "";
 function render() {
   const id = route();
   const focus = document.activeElement?.id, caret = document.activeElement?.selectionStart;
   $("#app").innerHTML = state.needKey ? renderKeyScreen()
     : state.error && !state.orgs.length ? `<section class="card"><div class="body err">Failed to load: ${esc(state.error)}</div></section>`
-    : id ? (view() === "unlicensed" ? renderUnlicensed(id) : renderOrg(id)) : renderOverview();
+    : id ? (view() === "unlicensed" ? renderUnlicensed(id) : renderOrg(id)) : noticeHtml() + renderOverview();
   if (id && state.detail[id]?.inventory) renderDevTable(id);
   if (state.jumpDevices && $("#devices")) { state.jumpDevices = false; $("#devices").scrollIntoView({ block: "start" }); }
   if (focus && $("#" + focus)) { $("#" + focus).focus(); if (caret != null) try { $("#" + focus).setSelectionRange(caret, caret); } catch {} }
@@ -1001,6 +1023,7 @@ document.addEventListener("click", e => {
     if (state.fnet) $("#devices")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
+  if (e.target.id === "dismissnotice") { state.notice = ""; render(); return; }
   if (e.target.id === "clearfilters") { Object.assign(state, { ffam: "", fnet: "", fmodel: "", fdep: "all", fsrc: "", q: "" }); render(); return; }
   if (e.target.id === "allnets") { state.showAllNets = !state.showAllNets; render(); return; }
   if (e.target.closest("[data-home]")) { location.hash = ""; return; }
