@@ -1,7 +1,7 @@
 @echo off
 setlocal
-title Cisco Meraki Licensing Viewer 2.0
-rem Double-click to start the Cisco Meraki Licensing Viewer. Close this window to stop it.
+title Cisco Meraki License Lens
+rem Double-click to start the Cisco Meraki License Lens. Close this window to stop it.
 cd /d "%~dp0"
 
 if not exist "server.py" (
@@ -54,7 +54,7 @@ echo Install it, tick "Add python.exe to PATH" during setup, then double-click t
 goto :done
 
 :run
-echo Starting the Cisco Meraki Licensing Viewer...
+echo Starting the Cisco Meraki License Lens...
 echo Your browser should open in a moment. If it doesn't, open the http://localhost address shown below.
 echo Keep this window open while you use the viewer. Close it to stop.
 echo.

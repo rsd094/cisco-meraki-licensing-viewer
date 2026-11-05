@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click to start the Cisco Meraki Licensing Viewer. Close this window to stop it.
+# Double-click to start the Cisco Meraki License Lens. Close this window to stop it.
 cd "$(dirname "$0")" || exit 1
 
 # macOS always has a python3 placeholder, so check it actually runs (and is 3.8 or newer).
@@ -33,7 +33,7 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 
-echo "Starting the Cisco Meraki Licensing Viewer..."
+echo "Starting the Cisco Meraki License Lens..."
 echo "Your browser should open in a moment. Keep this window open while you use the viewer."
 echo
 "$PY" server.py --open

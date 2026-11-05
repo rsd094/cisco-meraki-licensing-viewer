@@ -1,4 +1,4 @@
-# Cisco Meraki Licensing Viewer 2.0
+# Cisco Meraki License Lens
 
 A small app that runs on your own computer and shows, for every Meraki organization your API key can see:
 
@@ -22,9 +22,9 @@ It's a read-only companion to Meraki Dashboard, not a replacement for it.
 
 1. Unzip the folder anywhere.
 2. Double-click the launcher for your system:
-   - **Mac:** `Start Licensing Viewer (Mac).command`. The first time, macOS may block it because it was downloaded. Right-click it, choose **Open**, then **Open** again.
-   - **Windows:** `Start Licensing Viewer (Windows).bat`.
-3. Your browser opens the Licensing Viewer. Enter your API key and click **Connect**.
+   - **Mac:** `Start License Lens (Mac).command`. The first time, macOS may block it because it was downloaded. Right-click it, choose **Open**, then **Open** again.
+   - **Windows:** `Start License Lens (Windows).bat`.
+3. Your browser opens License Lens. Enter your API key and click **Connect**.
 
 Keep the small terminal window open while you use the viewer. Closing it stops the app.
 
