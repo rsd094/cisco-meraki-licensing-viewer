@@ -7,7 +7,7 @@ A small app that runs on your own computer and shows, for every Meraki organizat
 - **Config source: device (monitoring)**: Catalyst devices with config source: device and Catalyst 9800 wireless controllers are managed on-prem and only send telemetry to Dashboard, so they don't consume a license and show **N/A**. The viewer reads this from each device's "Cloud configuration" detail in the inventory API, and the **Config source** filter splits devices into cloud and device. Exception: Wi-Fi 7 APs consume a license even with config source: device. A Catalyst device moved to config source: cloud needs a license.
 - **Licensed / Unlicensed**: how many deployed devices the org's active licenses actually cover. Unlicensed devices link to a page listing the networks they're in, with a shortcut to those devices.
 - **Each device's license class and SKU**: Enterprise or Advantage, plus the subscription license SKU its hardware model needs, per Meraki's licensing docs.
-- **Each org's share of licensed hardware** across all your orgs, with filters by product family (MX, MS, MR, CW, MV, MT…) and CSV export.
+- **Each org's share of licensed hardware** across all your orgs, with filters by product area, named as in Meraki Dashboard (Security & SD-WAN, Switching, Wireless, Cameras, Sensors, Cellular Gateways, Wireless Controllers) and CSV export.
 
 It's a read-only companion to Meraki Dashboard, not a replacement for it.
 

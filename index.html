@@ -116,7 +116,7 @@ footer.disclaimer { max-width: 1400px; margin: 0 auto; padding: 0 24px 28px; col
 .orgchart:hover { border-color: var(--accent); }
 .orgchart h3 { margin: 0 0 2px; font-size: 13.5px; }
 .orgchart .s { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
-.hrow { display: grid; grid-template-columns: 80px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 12.5px; }
+.hrow { display: grid; grid-template-columns: 136px 1fr auto; align-items: center; gap: 10px; padding: 3px 0; font-size: 12.5px; }
 .hrow.net { grid-template-columns: minmax(120px, 220px) 1fr 44px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
 .hrow.net:hover, .hrow.net.on { background: var(--accent-soft); }
 .hrow .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -322,11 +322,13 @@ function summarise(devs) {
   const total = devs.length, deployed = devs.filter(d => d.networkId).length;
   return { total, deployed, unassigned: total - deployed };
 }
-// All access points (MR, CW916x, Wi-Fi 7 CW917x, Catalyst APs) form one Wireless family, keyed "MR".
+// Families follow Dashboard's product areas. All access points (MR, CW916x, Wi-Fi 7 CW917x, Catalyst APs)
+// form one Wireless family, keyed "MR"; MX, vMX, Secure Routers and Z form Security & SD-WAN, keyed "MX".
 // Licensing still tells them apart by model (e.g. LIC-CW for Wi-Fi 7 in subscription orgs).
 function familyOf(d) {
   const c = classifyModel(d.model);
   if (c.family === "CW") return "MR";
+  if (c.family === "Z") return "MX"; // Z teleworker gateways sit under Security & SD-WAN, like MX and Secure Routers
   if (c.family !== "Other") return c.family;
   return { appliance: "MX", switch: "MS", wireless: "MR", camera: "MV", sensor: "MT", cellularGateway: "MG", wirelessController: "WLC" }[d.productType] || (d.productType || "Other");
 }
@@ -580,7 +582,8 @@ const FAMILY_ORDER = ["MX", "MS", "MR", "CW", "MV", "MT", "MG", "WLC"];
 // Fixed slot per family. Only one green (MR) so APs and sensors never look alike: MT is yellow, CW purple.
 const FAMILY_SLOT = { MX: 1, MS: 2, MR: 3, MT: 4, MV: 5, CW: 7, MG: 8 };
 // Display names for product families (the internal key stays "MS" etc.)
-const FAMILY_LABEL = { MS: "Switching", MR: "Wireless" };
+// Same product-area names as Meraki Dashboard's menu
+const FAMILY_LABEL = { MX: "Security & SD-WAN", MS: "Switching", MR: "Wireless", MV: "Cameras", MT: "Sensors", MG: "Cellular Gateways", WLC: "Wireless Controllers" };
 const famLabel = f => FAMILY_LABEL[f] || f;
 const famColor = f => FAMILY_SLOT[f] ? `var(--s${FAMILY_SLOT[f]})` : "var(--s-other)";
 const famSort = (a, b) => {
