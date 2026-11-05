@@ -223,16 +223,17 @@ async function loadOverview() {
   const ids = new Set(state.orgs.map(o => o.id));
   for (const k of ["inv", "invErr", "lic", "licErr", "stat", "detail"]) for (const id in state[k]) if (!ids.has(id)) delete state[k][id];
   render();
+  // each org's inventory, licensing and statuses load side by side (the server still caps the pace at 8/s)
   await pool(state.orgs, 4, async o => {
     if (o.api && o.api.enabled === false) { state.invErr[o.id] = "API access disabled for this org"; return; }
-    try { state.inv[o.id] = await api(`/organizations/${o.id}/inventory/devices`); delete state.invErr[o.id]; }
-    catch (e) { if (e.notFound) { forgetOrg(o.id, o.name); render(); return; } state.invErr[o.id] = e.message; }
-    render();
-    try { state.lic[o.id] = await loadLicensing(o); delete state.licErr[o.id]; }
-    catch (e) { state.licErr[o.id] = e.message; }
-    render();
-    // device statuses, for the Dormant count (a missing status list just leaves it blank)
-    try { state.stat[o.id] = await api(`/organizations/${o.id}/devices/statuses`); } catch {}
+    const [inv, lic, st] = await Promise.allSettled([
+      api(`/organizations/${o.id}/inventory/devices?perPage=1000`), loadLicensing(o), api(`/organizations/${o.id}/devices/statuses?perPage=1000`)]);
+    if (inv.status === "rejected") {
+      if (inv.reason.notFound) { forgetOrg(o.id, o.name); render(); return; }
+      state.invErr[o.id] = inv.reason.message;
+    } else { state.inv[o.id] = inv.value; delete state.invErr[o.id]; }
+    if (lic.status === "fulfilled") { state.lic[o.id] = lic.value; delete state.licErr[o.id]; } else state.licErr[o.id] = lic.reason.message;
+    if (st.status === "fulfilled") state.stat[o.id] = st.value; // a missing status list just leaves Dormant blank
     render();
   });
 }
@@ -240,62 +241,74 @@ async function loadOverview() {
 // Just the licensing data needed to work out which deployed devices are covered
 async function loadLicensing(o) {
   const id = o.id, L = { model: o.licensing?.model || "unknown" };
-  if (L.model === "co-term" || L.model === "per-device") L.overview = await api(`/organizations/${id}/licenses/overview`);
-  if (L.model === "per-device") L.licenses = await api(`/organizations/${id}/licenses`);
-  if (L.model === "subscription") L.subscriptions = await api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
+  const get = {};
+  if (L.model === "co-term" || L.model === "per-device") get.overview = api(`/organizations/${id}/licenses/overview`);
+  if (L.model === "per-device") get.licenses = api(`/organizations/${id}/licenses?perPage=1000`);
+  if (L.model === "subscription") get.subscriptions = api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
+  for (const [k, v] of Object.entries(get)) L[k] = await v; // already running in parallel
   return L;
 }
 
-async function loadOrg(id) {
-  const known = state.orgs.find(o => o.id === id);
-  let org;
-  try { org = await api(`/organizations/${id}`); }
-  catch (e) {
-    if (e.notFound) { forgetOrg(id, known?.name); location.hash = ""; return; }
-    if (!known) throw e;
-    org = known;
+// reuse: opening an org from the home page reuses the inventory, statuses and licensing it already loaded,
+// so only networks and (co-term) license history or (subscription) entitlements are fetched.
+// Refresh and auto-refresh fetch everything again.
+async function loadOrg(id, reuse) {
+  let org = state.orgs.find(o => o.id === id);
+  if (!org) {
+    try { org = await api(`/organizations/${id}`); } // only for a direct link to an org not in the list yet
+    catch (e) { if (e.notFound) { forgetOrg(id); location.hash = ""; return; } throw e; }
   }
   const model = org.licensing?.model || "unknown";
   const d = { org, model, err: {} };
-  const tasks = {
-    inventory: () => api(`/organizations/${id}/inventory/devices`),
-    networks: () => api(`/organizations/${id}/networks`),
-    statuses: () => api(`/organizations/${id}/devices/statuses`),
-  };
-  if (model === "co-term") {
-    tasks.overview = () => api(`/organizations/${id}/licenses/overview`);
-    tasks.coterm = () => api(`/organizations/${id}/licensing/coterm/licenses`);
+  const cached = reuse && state.inv[id] && state.stat[id] && state.lic[id];
+  if (cached) {
+    const L = state.lic[id];
+    Object.assign(d, { inventory: state.inv[id], statuses: state.stat[id], overview: L.overview, licenses: L.licenses, subscriptions: L.subscriptions });
+    state.detail[id] = d;
+    render(); // show the org straight away; network names fill in a moment later
   }
-  if (model === "per-device") { tasks.overview = () => api(`/organizations/${id}/licenses/overview`); tasks.licenses = () => api(`/organizations/${id}/licenses`); }
-  if (model === "subscription") {
-    tasks.subscriptions = () => api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
-    tasks.entitlements = () => api(`/administered/licensing/subscription/entitlements`);
+  const tasks = { networks: () => api(`/organizations/${id}/networks?perPage=1000`) };
+  if (!cached) {
+    tasks.inventory = () => api(`/organizations/${id}/inventory/devices?perPage=1000`);
+    tasks.statuses = () => api(`/organizations/${id}/devices/statuses?perPage=1000`);
+    if (model === "co-term" || model === "per-device") tasks.overview = () => api(`/organizations/${id}/licenses/overview`);
+    if (model === "per-device") tasks.licenses = () => api(`/organizations/${id}/licenses?perPage=1000`);
+    if (model === "subscription") tasks.subscriptions = () => api(`/administered/licensing/subscription/subscriptions?organizationIds[]=${id}`);
   }
+  if (model === "co-term") tasks.coterm = () => api(`/organizations/${id}/licensing/coterm/licenses?perPage=1000`);
+  if (model === "subscription") tasks.entitlements = () => api(`/administered/licensing/subscription/entitlements`);
   let gone = false;
   await Promise.all(Object.entries(tasks).map(async ([k, f]) => {
-    try { d[k] = await f(); } catch (e) { d.err[k] = e.message; if (e.notFound && k === "inventory") gone = true; }
+    try { d[k] = await f(); } catch (e) { d.err[k] = e.message; if (e.notFound && (k === "inventory" || k === "networks")) gone = true; }
   }));
   if (gone) { forgetOrg(id, org.name); location.hash = ""; return; }
-  if (d.inventory) state.inv[id] = d.inventory;
-  if (d.statuses) state.stat[id] = d.statuses;
-  const licErr = d.err.overview || d.err.licenses || d.err.subscriptions;
-  if (licErr) state.licErr[id] = licErr;
-  else { state.lic[id] = { model, overview: d.overview, licenses: d.licenses, subscriptions: d.subscriptions }; delete state.licErr[id]; }
+  if (!cached) {
+    if (d.inventory) state.inv[id] = d.inventory;
+    if (d.statuses) state.stat[id] = d.statuses;
+    const licErr = d.err.overview || d.err.licenses || d.err.subscriptions;
+    if (licErr) state.licErr[id] = licErr;
+    else { state.lic[id] = { model, overview: d.overview, licenses: d.licenses, subscriptions: d.subscriptions }; delete state.licErr[id]; }
+  }
   state.detail[id] = d;
 }
 
 async function refresh() {
-  if (state.loading || state.needKey) return;
+  if (state.needKey) return;
+  if (state.loading) { state.again = true; return; } // run once more when the current load finishes
   state.loading = true; state.error = null; setStatus(true);
+  const reuse = state.reuseNext; state.reuseNext = false;
   try {
     const id = route();
     if (!state.orgs.length || !id) await loadOverview();
-    if (id) await loadOrg(id);
+    if (id) await loadOrg(id, reuse);
     state.updated = new Date();
   } catch (e) {
     if (e.auth) { state.needKey = true; state.keyError = "Meraki rejected that API key. Check it and try again."; }
     else state.error = e.message;
-  } finally { state.loading = false; setStatus(false); render(); }
+  } finally {
+    state.loading = false; setStatus(false); render();
+    if (state.again) { state.again = false; setTimeout(refresh); }
+  }
 }
 
 function setStatus(busy) {
@@ -1076,7 +1089,7 @@ window.addEventListener("hashchange", () => {
   scrollTo(0, 0);
   render();
   const id = route();
-  if (id) refresh();
+  if (id) { state.reuseNext = true; refresh(); }
 });
 $("#refresh").onclick = refresh;
 // Theme: Auto follows the computer's light/dark setting; Light/Dark override it and are remembered.
@@ -1125,8 +1138,12 @@ let timer;
 function schedule() {
   clearInterval(timer);
   const s = +$("#auto").value;
-  if (s) timer = setInterval(refresh, s * 1000);
+  // auto-refresh skips while the tab is hidden, and catches up when it's shown again
+  if (s) timer = setInterval(() => { if (document.hidden) state.missedRefresh = true; else refresh(); }, s * 1000);
 }
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.missedRefresh) { state.missedRefresh = false; refresh(); }
+});
 schedule();
 (async () => {
   let cfg = {};
