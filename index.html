@@ -561,7 +561,9 @@ function renderSplit(total, lic, unlic, mon, unknown, none) {
 // ---------- charts ----------
 const FAMILY_ORDER = ["MX", "MS", "MR", "CW", "MV", "MT", "MG", "WLC"];
 // Colour follows the family, never its rank: each family owns one fixed slot.
-const famColor = f => { const i = FAMILY_ORDER.indexOf(f); return i < 0 ? "var(--s-other)" : `var(--s${i + 1})`; };
+// Fixed slot per family. Only one green (MR) so APs and sensors never look alike: MT is yellow, CW purple.
+const FAMILY_SLOT = { MX: 1, MS: 2, MR: 3, MT: 4, MV: 5, CW: 7, MG: 8 };
+const famColor = f => FAMILY_SLOT[f] ? `var(--s${FAMILY_SLOT[f]})` : "var(--s-other)";
 const famSort = (a, b) => {
   const ia = FAMILY_ORDER.indexOf(a), ib = FAMILY_ORDER.indexOf(b);
   return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
