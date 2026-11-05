@@ -1,4 +1,4 @@
-# Cisco Meraki License Lens
+# Cisco Meraki License Breakdown
 
 A small app that runs on your own computer and shows, for every Meraki organization your API key can see:
 
@@ -22,9 +22,9 @@ It's a read-only companion to Meraki Dashboard, not a replacement for it.
 
 1. Unzip the folder anywhere.
 2. Double-click the launcher for your system:
-   - **Mac:** `Start License Lens (Mac).command`. The first time, macOS may block it because it was downloaded. Right-click it, choose **Open**, then **Open** again.
-   - **Windows:** `Start License Lens (Windows).bat`.
-3. Your browser opens License Lens. Enter your API key and click **Connect**.
+   - **Mac:** `Start License Breakdown (Mac).command`. The first time, macOS may block it because it was downloaded. Right-click it, choose **Open**, then **Open** again.
+   - **Windows:** `Start License Breakdown (Windows).bat`.
+3. Your browser opens License Breakdown. Enter your API key and click **Connect**.
 
 Keep the small terminal window open while you use the viewer. Closing it stops the app.
 
@@ -67,7 +67,7 @@ From a terminal you can also run `python3 server.py --open`, adding `--port 9000
 - **Large orgs:** list endpoints are asked for 1,000 items per call, so an org with 2,500 devices takes 3 calls for its inventory.
 - **Auto-refresh** repeats the current page's calls (every 5 minutes by default, or off). It's skipped while the browser tab is hidden, and catches up when you return.
 - **Pace:** at most 8 requests per second in total, below Meraki's limit of 10 per second per organization (shared by every app using that org) and 100 per second per source IP.
-- **429 (rate limited):** License Lens follows Meraki's guidance. It honors the `Retry-After` header, or pauses 1.5 s and doubles the wait (up to 30 s) on repeated 429s. It pauses all pending requests, not just the refused one, and retries up to 6 times.
+- **429 (rate limited):** License Breakdown follows Meraki's guidance. It honors the `Retry-After` header, or pauses 1.5 s and doubles the wait (up to 30 s) on repeated 429s. It pauses all pending requests, not just the refused one, and retries up to 6 times.
 
 ## Meraki API endpoints used (all GET)
 

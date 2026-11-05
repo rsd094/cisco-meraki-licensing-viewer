@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local server for the Cisco Meraki License Lens.
+"""Local server for the Cisco Meraki License Breakdown.
 
 Serves the viewer and forwards GET /api/<path> to https://api.meraki.com/api/v1/<path>.
 It follows pagination (Link: rel=next) so list endpoints come back complete. Only GET
@@ -99,7 +99,7 @@ def meraki_get(url, key):
         req = urllib.request.Request(url, method="GET", headers={
             "Authorization": f"Bearer {key}",
             "Accept": "application/json",
-            "User-Agent": "MerakiLicenseLens/2.0",
+            "User-Agent": "MerakiLicenseBreakdown/2.0",
         })
         try:
             with urllib.request.urlopen(req, timeout=60, context=SSL_CTX) as r:
@@ -158,7 +158,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         key = (self.headers.get(KEY_HEADER) or "").strip() or DEFAULT_KEY
         if not key:
-            return self.send_json(401, {"errors": ["No API key. Enter your Meraki API key in License Lens."]})
+            return self.send_json(401, {"errors": ["No API key. Enter your Meraki API key in License Breakdown."]})
 
         url = BASE + self.path[len("/api"):]
         status, body, headers = meraki_get(url, key)
@@ -206,7 +206,7 @@ def main():
     if not srv:
         sys.exit(f"No free port between {args.port} and {args.port + 19}.")
     url = f"http://localhost:{srv.server_port}"
-    print(f"Cisco Meraki License Lens running at {url}  (Ctrl+C to stop)", flush=True)
+    print(f"Cisco Meraki License Breakdown running at {url}  (Ctrl+C to stop)", flush=True)
     print("Read-only: only GET requests are sent to the Meraki Dashboard API; nothing is changed.", flush=True)
     if args.open:
         threading.Timer(0.5, webbrowser.open, [url]).start()
