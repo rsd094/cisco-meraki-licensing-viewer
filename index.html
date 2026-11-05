@@ -80,6 +80,7 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .chip.on span { color: #fff; opacity: .8; }
 .tile .v.err { color: var(--bad); }
 .tile.alert { border-color: var(--bad); }
+.tile.warnt .v { color: var(--warn); }
 .notice { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; font-size: 13px; }
 .notice button { border: 0; background: none; color: var(--muted); padding: 2px 6px; }
 .tile.click { cursor: pointer; transition: border-color .15s; }
@@ -199,7 +200,7 @@ async function pool(items, n, fn) {
 }
 
 // ---------- state ----------
-const state = { orgs: [], inv: {}, invErr: {}, lic: {}, licErr: {}, detail: {}, loading: false, updated: null, sort: {} };
+const state = { orgs: [], inv: {}, invErr: {}, lic: {}, licErr: {}, stat: {}, detail: {}, loading: false, updated: null, sort: {} };
 
 function route() {
   const m = location.hash.match(/org=([^&]+)/);
@@ -212,7 +213,7 @@ const unlicensedHref = id => `#org=${encodeURIComponent(id)}&view=unlicensed`;
 // An org that returns 404 has been deleted (or the key lost access): drop it and everything cached for it
 function forgetOrg(id, name) {
   state.orgs = state.orgs.filter(o => o.id !== id);
-  for (const k of ["inv", "invErr", "lic", "licErr", "detail"]) delete state[k][id];
+  for (const k of ["inv", "invErr", "lic", "licErr", "stat", "detail"]) delete state[k][id];
   state.notice = `“${name || id}” wasn't found in Meraki Dashboard (it may have been deleted), so it's been removed from your organizations.`;
 }
 async function loadOverview() {
@@ -220,7 +221,7 @@ async function loadOverview() {
   state.orgs.sort((a, b) => a.name.localeCompare(b.name));
   // forget data for orgs that are no longer listed
   const ids = new Set(state.orgs.map(o => o.id));
-  for (const k of ["inv", "invErr", "lic", "licErr", "detail"]) for (const id in state[k]) if (!ids.has(id)) delete state[k][id];
+  for (const k of ["inv", "invErr", "lic", "licErr", "stat", "detail"]) for (const id in state[k]) if (!ids.has(id)) delete state[k][id];
   render();
   await pool(state.orgs, 4, async o => {
     if (o.api && o.api.enabled === false) { state.invErr[o.id] = "API access disabled for this org"; return; }
@@ -229,6 +230,9 @@ async function loadOverview() {
     render();
     try { state.lic[o.id] = await loadLicensing(o); delete state.licErr[o.id]; }
     catch (e) { state.licErr[o.id] = e.message; }
+    render();
+    // device statuses, for the Dormant count (a missing status list just leaves it blank)
+    try { state.stat[o.id] = await api(`/organizations/${o.id}/devices/statuses`); } catch {}
     render();
   });
 }
@@ -273,6 +277,7 @@ async function loadOrg(id) {
   }));
   if (gone) { forgetOrg(id, org.name); location.hash = ""; return; }
   if (d.inventory) state.inv[id] = d.inventory;
+  if (d.statuses) state.stat[id] = d.statuses;
   const licErr = d.err.overview || d.err.licenses || d.err.subscriptions;
   if (licErr) state.licErr[id] = licErr;
   else { state.lic[id] = { model, overview: d.overview, licenses: d.licenses, subscriptions: d.subscriptions }; delete state.licErr[id]; }
@@ -473,11 +478,13 @@ function renderOverview() {
     { key: "dep", label: "Deployed (in a network)", val: r => r.dep },
     { key: "licp", label: "Licensed (of those needing one)", val: r => r.licp },
     { key: "unlic", label: "Unlicensed", num: 1, val: r => r.c?.unlicensed ?? -1 },
+    { key: "dorm", label: "Dormant", num: 1, val: r => dormant(r.o.id)?.length ?? -1 },
     { key: "share", label: shareLabel(state.orgs), val: r => r.share },
   ];
   const go = unlicOrgs.length === 1 ? `<a class="go" href="${unlicensedHref(unlicOrgs[0].o.id)}">See which networks →</a>`
     : unlicOrgs.length ? `<a class="go" href="#orgtable" data-jump="orgtable">Pick an organization ↓</a>` : "";
 
+  const dorm = rows.reduce((n, r) => n + (dormant(r.o.id)?.length || 0), 0), statLoaded = state.orgs.some(o => state.stat[o.id]);
   return `
   <div class="tiles">
     <div class="tile"><div class="k">Inventory</div><div class="v">${tot.total}</div>
@@ -488,6 +495,8 @@ function renderOverview() {
       <div class="s">Deployed and covered by an active license${pending ? ' · <span class="spinner"></span> checking' : ""}</div></div>
     <div class="tile ${unlic ? "alert" : ""}"><div class="k">Unlicensed <span class="pc">· ${covDep ? fmtPct(pct(unlic, covDep)) : "—"} of ${mon ? "those needing one" : "deployed"}</span></div><div class="v">${covered.length ? unlic : "—"}</div>
       <div class="s">${unlic ? `Deployed with no license to cover them, in ${unlicOrgs.length} org${unlicOrgs.length === 1 ? "" : "s"}` : covered.length ? "Every deployed device is covered" : "Checking licenses…"}</div>${go}</div>
+    <div class="tile ${dorm ? "warnt" : ""}"><div class="k">Dormant <span class="pc">· ${statLoaded ? fmtPct(pct(dorm, tot.deployed)) : "—"} of deployed</span></div><div class="v">${statLoaded ? dorm : "—"}</div>
+      <div class="s">${DORMANT_SUB}</div></div>
   </div>
   ${renderSplit(tot.total, lic, unlic, mon, tot.deployed - covDep - mon, tot.unassigned)}
   <section class="card" id="orgtable">
@@ -500,8 +509,9 @@ function renderOverview() {
         <td>${barN(r.s.deployed, r.dep, "")}</td>
         <td>${r.c ? barN(r.c.licensed, r.licp, "lic") : covNote(r.cov)}</td>
         <td class="num">${!r.c ? "" : r.c.unlicensed ? `<a class="go" style="padding:2px 8px" href="${unlicensedHref(r.o.id)}" title="See which networks">${r.c.unlicensed} →</a>` : '<span class="muted">0</span>'}</td>
+        <td class="num">${(() => { const dm = dormant(r.o.id); return !dm ? "" : dm.length ? `<strong style="color:var(--warn)">${dm.length}</strong> <span class="muted">(${fmtPct(pct(dm.length, r.s.deployed))})</span>` : '<span class="muted">0</span>'; })()}</td>
         <td>${shareCell(r)}</td>`
-        : `<td colspan="5" class="${r.err ? "err" : "muted"}">${r.err ? esc(r.err) : '<span class="spinner"></span> loading inventory…'}</td>`}`,
+        : `<td colspan="6" class="${r.err ? "err" : "muted"}">${r.err ? esc(r.err) : '<span class="spinner"></span> loading inventory…'}</td>`}`,
       r => `class="click" data-org="${esc(r.o.id)}"`)}
   </section>
   ${renderOrgCharts()}`;
@@ -517,6 +527,14 @@ function shareCell(r) {
   if (!u) return r.c ? "" : covNote(r.cov);
   if (!u.limit) return '<span class="muted">No EA seats</span>';
   return `${bar(r.share, "lic")}<div class="note" style="margin-top:1px">% of EA utilized · ${u.used} of ${u.limit} seats</div>`;
+}
+// Dormant: in a network, but Meraki hasn't heard from it in a while. It still uses a license.
+const DORMANT_SUB = "In a network but not checking in, so still using a license";
+function dormant(id) {
+  const st = state.stat[id], inv = state.inv[id];
+  if (!st || !inv) return null;
+  const isDormant = new Set(st.filter(x => x.status === "dormant").map(x => x.serial));
+  return inv.filter(x => x.networkId && isDormant.has(x.serial));
 }
 const barN = (n, v, cls) => `<div class="barwrap"><strong style="min-width:2.5em;text-align:right">${n}</strong><div class="bar ${cls}"><i style="width:${Math.min(100, v)}%"></i></div><span>${fmtPct(v)}</span></div>`;
 const covNote = cov => !cov ? "" : cov.pending ? '<span class="spinner"></span>' : `<span class="err" title="${esc(cov.err)}">License data unavailable</span>`;
@@ -535,7 +553,7 @@ function renderSplit(total, lic, unlic, mon, unknown, none) {
   ];
   const items = [["Licensed", SEG.lic, lic], ["Unlicensed", SEG.unlic, unlic], ...(mon ? [["Config source: device (monitoring)", SEG.mon, mon]] : []), ...(unknown ? [["Not checked", SEG.unknown, unknown]] : []), ["Not in a network", SEG.none, none]];
   const dep = lic + unlic + mon + unknown;
-  return `<section class="card"><h2>Where your inventory stands <span class="sub">${total} devices</span></h2>
+  return `<section class="card"><h2>Inventory breakdown <span class="sub">${total} devices</span></h2>
     <div class="split">${dep ? `<div class="depmark" style="width:${(100 * dep / total).toFixed(2)}%">Deployed <strong>${dep}</strong> · ${fmtPct(pct(dep, total))} of inventory</div>` : ""}${hbar(segs, total)}
       <span class="legend">${items.map(([l, c, n]) => `<span><i style="background:${c}"></i>${l} <strong style="color:var(--text)">${n}</strong> (${fmtPct(pct(n, total))})</span>`).join("")}</span></div></section>`;
 }
@@ -712,7 +730,7 @@ function tierPill(t) {
 
 // Org-page tiles double as filters for the network chart's devices table below them
 const TILE_FILTER = { all: { fdep: "all", fsrc: "" }, deployed: { fdep: "deployed", fsrc: "" }, licensed: { fdep: "licensed", fsrc: "" },
-  unlicensed: { fdep: "unlicensed", fsrc: "" }, monitoring: { fdep: "all", fsrc: "device" }, unassigned: { fdep: "unassigned", fsrc: "" } };
+  unlicensed: { fdep: "unlicensed", fsrc: "" }, dormant: { fdep: "dormant", fsrc: "" }, monitoring: { fdep: "all", fsrc: "device" }, unassigned: { fdep: "unassigned", fsrc: "" } };
 const tileOn = k => (state.fdep || "all") === TILE_FILTER[k].fdep && (state.fsrc || "") === TILE_FILTER[k].fsrc;
 const tileCls = k => `tile click${tileOn(k) && k !== "all" ? " on" : ""}`;
 function renderOrg(id) {
@@ -733,6 +751,7 @@ function renderOrg(id) {
     .map(([v, label, n]) => `<button class="chip ${fam === v ? "on" : ""}" data-fam="${esc(v)}">${esc(label)} <span>${n}</span></button>`).join("");
 
   const cov = coverage(id), c = cov?.groups ? covCounts(cov, fam) : null;
+  const dorm = (dormant(id) || []).filter(x => !fam || familyOf(x) === fam);
 
   return crumbs + `
   <div class="chips">${chips}</div>
@@ -746,6 +765,8 @@ function renderOrg(id) {
     <div class="${tileCls("unlicensed")} ${c?.unlicensed ? "alert" : ""}" data-tile="unlicensed" title="Show unlicensed devices"><div class="k">Unlicensed <span class="pc">· ${c ? fmtPct(pct(c.unlicensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.unlicensed : "—"}</div>
       <div class="s">${!c ? "" : c.unlicensed ? "Deployed with no license to cover them" : "Every deployed device is covered"}</div>
       ${c?.unlicensed ? `<a class="go" href="${unlicensedHref(id)}">See which networks →</a>` : ""}</div>
+    <div class="${tileCls("dormant")} ${dorm.length ? "warnt" : ""}" data-tile="dormant" title="Show dormant devices"><div class="k">Dormant <span class="pc">· ${fmtPct(pct(dorm.length, s.deployed))} of deployed</span></div><div class="v">${dorm.length}</div>
+      <div class="s">${DORMANT_SUB}</div></div>
     <div class="tile"><div class="k">Org license status</div><div class="v" style="font-size:16px">${modelPill(d.model)} ${d.overview ? statusPill(d.overview.status) : ""}</div>
       <div class="s">${esc(licSummaryLine(d))}</div></div>
   </div>
@@ -757,7 +778,7 @@ function renderOrg(id) {
       <input id="q" placeholder="Search serial, model, name, network" value="${esc(state.q || "")}" size="26">
       ${networkSelect(id, all)}
       ${modelSelect(all)}
-      <select id="fdep" title="Status">${[["all", "All devices"], ["deployed", "Deployed (in a network)"], ["licensed", "Licensed"], ["unlicensed", "Unlicensed or over limit"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select id="fdep" title="Status">${[["all", "All devices"], ["deployed", "Deployed (in a network)"], ["licensed", "Licensed"], ["unlicensed", "Unlicensed or over limit"], ["dormant", "Dormant"], ["unassigned", "Not in a network"]].map(([v, l]) => `<option value="${v}" ${state.fdep === v ? "selected" : ""}>${l}</option>`).join("")}</select>
       <select id="fsrc" title="Config source">${[["", "All config sources"], ["cloud", "Config source: cloud"], ["device", "Config source: device (monitoring)"]].map(([v, l]) => `<option value="${v}" ${(state.fsrc || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
       <button id="clearfilters" ${activeFilters(id).length ? "" : "hidden"}>Clear filters</button>
       <button id="csv" class="primary" title="Exports exactly the rows shown, with the filters and sort you've chosen">Export CSV</button>
@@ -861,7 +882,7 @@ function filteredDevs(id) {
     .filter(x => !state.fnet || (state.fnet === "__none__" ? !x.networkId : x.networkId === state.fnet))
     .filter(x => !state.fmodel || x.model === state.fmodel)
     .filter(x => (state.fdep === "deployed" ? x.networkId : state.fdep === "unassigned" ? !x.networkId
-      : state.fdep === "licensed" ? x.cov === "licensed" : state.fdep === "unlicensed" ? x.cov === "unlicensed" || x.cov === "over" : true))
+      : state.fdep === "licensed" ? x.cov === "licensed" : state.fdep === "unlicensed" ? x.cov === "unlicensed" || x.cov === "over" : state.fdep === "dormant" ? x.networkId && x.st === "dormant" : true))
     .filter(x => !state.fsrc || (state.fsrc === "device") === (x.mgmt.mode === "monitored"))
     .filter(x => !q || [x.serial, x.model, x.name, x.net, x.license.sku, x.license.tier].join(" ").toLowerCase().includes(q));
 }
@@ -901,6 +922,7 @@ function activeFilters(id) {
   if (state.fmodel) out.push(["Model", state.fmodel]);
   if (state.fdep === "deployed") out.push(["Status", "Deployed"]);
   if (state.fdep === "unassigned") out.push(["Status", "Not in a network"]);
+  if (state.fdep === "dormant") out.push(["Status", "Dormant"]);
   if (state.fdep === "licensed") out.push(["Status", "Licensed"]);
   if (state.fdep === "unlicensed") out.push(["Status", "Unlicensed"]);
   if (state.fsrc) out.push(["Config source", state.fsrc === "device" ? "device (monitoring)" : "cloud"]);
