@@ -576,6 +576,9 @@ const FAMILY_ORDER = ["MX", "MS", "MR", "CW", "MV", "MT", "MG", "WLC"];
 // Colour follows the family, never its rank: each family owns one fixed slot.
 // Fixed slot per family. Only one green (MR) so APs and sensors never look alike: MT is yellow, CW purple.
 const FAMILY_SLOT = { MX: 1, MS: 2, MR: 3, MT: 4, MV: 5, CW: 7, MG: 8 };
+// Display names for product families (the internal key stays "MS" etc.)
+const FAMILY_LABEL = { MS: "Switching" };
+const famLabel = f => FAMILY_LABEL[f] || f;
 const famColor = f => FAMILY_SLOT[f] ? `var(--s${FAMILY_SLOT[f]})` : "var(--s-other)";
 const famSort = (a, b) => {
   const ia = FAMILY_ORDER.indexOf(a), ib = FAMILY_ORDER.indexOf(b);
@@ -603,8 +606,8 @@ function renderOrgCharts() {
     const sum = r => r.lic + r.unlic + r.mon + r.unknown + r.none;
     const max = Math.max(...fams.map(f => sum(by[f])));
     const rows = fams.map(f => {
-      const r = by[f], t = sum(r), dep = t - r.none, tip = (label, n) => `<strong>${esc(f)}</strong><br>${label}: ${n} of ${t} (${fmtPct(pct(n, t))})<br>Deployed: ${dep} of ${t}`;
-      return `<div class="hrow"><span class="lbl"><strong>${esc(f)}</strong></span>
+      const r = by[f], t = sum(r), dep = t - r.none, tip = (label, n) => `<strong>${esc(famLabel(f))}</strong><br>${label}: ${n} of ${t} (${fmtPct(pct(n, t))})<br>Deployed: ${dep} of ${t}`;
+      return `<div class="hrow"><span class="lbl"><strong>${esc(famLabel(f))}</strong></span>
         ${hbar([{ n: r.lic, color: SEG.lic, tip: tip("Licensed", r.lic) }, { n: r.unlic, color: SEG.unlic, tip: tip("Unlicensed", r.unlic) },
                 { n: r.mon, color: SEG.mon, tip: tip("Config source: device (monitoring), no license needed", r.mon) }, { n: r.unknown, color: SEG.unknown, tip: tip("Deployed, license not checked", r.unknown) }, { n: r.none, color: SEG.none, tip: tip("Not in a network", r.none) }], max)}
         <span class="val" title="Deployed / total"><strong style="color:var(--text)">${dep}</strong> / ${t}</span></div>`;
@@ -640,7 +643,7 @@ function renderNetworkChart(id, all) {
     const by = {};
     for (const x of r.devs) by[x.fam] = (by[x.fam] || 0) + 1;
     const segs = Object.keys(by).sort(famSort).map(f => ({ n: by[f], color: famColor(f),
-      tip: `<strong>${esc(r.name)}</strong><br>${esc(f)}: ${by[f]} device${by[f] > 1 ? "s" : ""}${r.none ? " (not licensed)" : ""}` }));
+      tip: `<strong>${esc(r.name)}</strong><br>${esc(famLabel(f))}: ${by[f]} device${by[f] > 1 ? "s" : ""}${r.none ? " (not licensed)" : ""}` }));
     return `<div class="hrow net ${state.fnet === r.id ? "on" : ""}" data-net="${esc(r.id)}" title="Show only this network's devices">
       <span class="lbl ${r.none ? "muted" : ""}">${r.none ? "<em>Not in a network</em>" : esc(r.name)}</span>
       ${hbar(segs, max)}<span class="val">${r.devs.length || '<span class="muted">0</span>'}</span></div>`;
@@ -648,8 +651,8 @@ function renderNetworkChart(id, all) {
   const nNets = rows.filter(r => !r.none).length;
   const more = shown.length < rows.length || state.showAllNets && rows.length > LIMIT + 1
     ? `<button id="allnets" style="margin:6px 6px 0">${state.showAllNets ? "Show top 15" : `Show all ${nNets} networks`}</button>` : "";
-  return `<section class="card viz"><h2>Devices by network <span class="sub">${nNets} network${nNets === 1 ? "" : "s"}${fam ? ` · ${esc(fam)} only` : ""} · devices in a network need a license</span>
-    ${legend(fams.map(f => [f, famColor(f)]))}</h2>
+  return `<section class="card viz"><h2>Devices by network <span class="sub">${nNets} network${nNets === 1 ? "" : "s"}${fam ? ` · ${esc(famLabel(fam))} only` : ""} · devices in a network need a license</span>
+    ${legend(fams.map(f => [famLabel(f), famColor(f)]))}</h2>
     <div class="chartbody">${html}${more}</div></section>`;
 }
 
@@ -762,7 +765,7 @@ function renderOrg(id) {
   // Product family filter chips (counts are org-wide so they never change under the filter)
   const famCount = {};
   for (const x of all) famCount[x.fam] = (famCount[x.fam] || 0) + 1;
-  const chips = [["", "All", all.length], ...Object.keys(famCount).sort().map(f => [f, f, famCount[f]])]
+  const chips = [["", "All", all.length], ...Object.keys(famCount).sort().map(f => [f, famLabel(f), famCount[f]])]
     .map(([v, label, n]) => `<button class="chip ${fam === v ? "on" : ""}" data-fam="${esc(v)}">${esc(label)} <span>${n}</span></button>`).join("");
 
   const cov = coverage(id), c = cov?.groups ? covCounts(cov, fam) : null;
@@ -772,7 +775,7 @@ function renderOrg(id) {
   <div class="chips">${chips}</div>
   <div class="tiles">
     <div class="${tileCls("all")}" data-tile="all" title="Show all devices"><div class="k">Inventory</div><div class="v">${s.total}</div>
-      <div class="s">All devices in the org${fam ? ` (${esc(fam)})` : ""}</div></div>
+      <div class="s">All devices in the org${fam ? ` (${esc(famLabel(fam))})` : ""}</div></div>
     <div class="${tileCls("deployed")}" data-tile="deployed" title="Show devices in a network"><div class="k">Deployed <span class="pc">· ${fmtPct(pct(s.deployed, s.total))} of inventory</span></div><div class="v">${s.deployed}</div>
       <div class="s">In a network${c?.monitored ? `<br><a class="tilelink ${tileOn("monitoring") ? "on" : ""}" data-tile="monitoring" title="Show these devices">${c.monitored} monitored with config source: device</a>` : ""}${s.unassigned ? `<br><a class="tilelink ${tileOn("unassigned") ? "on" : ""}" data-tile="unassigned" title="Show these devices">${s.unassigned} device${s.unassigned === 1 ? "" : "s"} not assigned to a network</a>` : ""}</div></div>
     <div class="${tileCls("licensed")}" data-tile="licensed" title="Show licensed devices"><div class="k">Licensed <span class="pc">· ${c ? fmtPct(pct(c.licensed, c.deployed)) : "—"} of ${c?.monitored ? "those needing one" : "deployed"}</span></div><div class="v">${c ? c.licensed : "—"}</div>
@@ -832,11 +835,11 @@ function renderUnlicensed(id) {
     { key: "n", label: "Affected devices", num: 1, val: r => r.devs.length },
     { key: "unlic", label: "Unlicensed", num: 1, val: r => r.unlic },
     ...(anyOver ? [{ key: "over", label: "Over limit", num: 1, val: r => r.over }] : []),
-    { key: "fams", label: "Product families", val: r => Object.keys(r.fams).sort(famSort).join(" ") },
+    { key: "fams", label: "Product families", val: r => Object.keys(r.fams).sort(famSort).map(famLabel).join(" ") },
     { key: "go", label: "", val: () => "" },
   ];
   if (!state.sort.unets) state.sort.unets = { key: "n", dir: -1 };
-  const famTxt = fams => Object.keys(fams).sort(famSort).map(f => `${esc(f)} ×${fams[f]}`).join(" · ");
+  const famTxt = fams => Object.keys(fams).sort(famSort).map(f => `${esc(famLabel(f))} ×${fams[f]}`).join(" · ");
 
   return crumbs + `
   <section class="card"><div class="body">
@@ -932,7 +935,7 @@ function modelSelect(all) {
 // Human-readable list of the filters in effect, e.g. ["Family: MR", "Network: Branch 1"]
 function activeFilters(id) {
   const d = state.detail[id], out = [];
-  if (state.ffam) out.push(["Family", state.ffam]);
+  if (state.ffam) out.push(["Family", famLabel(state.ffam)]);
   if (state.fnet) out.push(["Network", state.fnet === "__none__" ? "Not in a network" : ((d.networks || []).find(n => n.id === state.fnet)?.name || state.fnet)]);
   if (state.fmodel) out.push(["Model", state.fmodel]);
   if (state.fdep === "deployed") out.push(["Status", "Deployed"]);
@@ -986,7 +989,7 @@ function exportCsv(id) {
   const rows = sortedDevs(id);
   const head = ["orgId", "orgName", "serial", "model", "name", "family", "network", "deployed", "online", "configSource", "licensed", "licenseClass", "licenseSku", "skuInferred"];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, r.fam, r.net, r.networkId ? "yes" : "no", r.st, r.mgmt.label, COV_LABEL[r.cov] || "", r.cov === "na" ? "not needed" : r.networkId ? r.license.tier : "not licensed", r.license.sku, r.license.inferred ?? r.lic.inferred].map(q).join(",")));
+  const lines = [head.join(",")].concat(rows.map(r => [d.org.id, d.org.name, r.serial, r.model, r.name, famLabel(r.fam), r.net, r.networkId ? "yes" : "no", r.st, r.mgmt.label, COV_LABEL[r.cov] || "", r.cov === "na" ? "not needed" : r.networkId ? r.license.tier : "not licensed", r.license.sku, r.license.inferred ?? r.lic.inferred].map(q).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
   const tag = activeFilters(id).map(([, v]) => v).join("-").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80);
