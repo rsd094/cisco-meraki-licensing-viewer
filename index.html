@@ -322,8 +322,11 @@ function summarise(devs) {
   const total = devs.length, deployed = devs.filter(d => d.networkId).length;
   return { total, deployed, unassigned: total - deployed };
 }
+// All access points (MR, CW916x, Wi-Fi 7 CW917x, Catalyst APs) form one Wireless family, keyed "MR".
+// Licensing still tells them apart by model (e.g. LIC-CW for Wi-Fi 7 in subscription orgs).
 function familyOf(d) {
   const c = classifyModel(d.model);
+  if (c.family === "CW") return "MR";
   if (c.family !== "Other") return c.family;
   return { appliance: "MX", switch: "MS", wireless: "MR", camera: "MV", sensor: "MT", cellularGateway: "MG", wirelessController: "WLC" }[d.productType] || (d.productType || "Other");
 }
@@ -577,7 +580,7 @@ const FAMILY_ORDER = ["MX", "MS", "MR", "CW", "MV", "MT", "MG", "WLC"];
 // Fixed slot per family. Only one green (MR) so APs and sensors never look alike: MT is yellow, CW purple.
 const FAMILY_SLOT = { MX: 1, MS: 2, MR: 3, MT: 4, MV: 5, CW: 7, MG: 8 };
 // Display names for product families (the internal key stays "MS" etc.)
-const FAMILY_LABEL = { MS: "Switching" };
+const FAMILY_LABEL = { MS: "Switching", MR: "Wireless" };
 const famLabel = f => FAMILY_LABEL[f] || f;
 const famColor = f => FAMILY_SLOT[f] ? `var(--s${FAMILY_SLOT[f]})` : "var(--s-other)";
 const famSort = (a, b) => {
@@ -765,7 +768,7 @@ function renderOrg(id) {
   // Product family filter chips (counts are org-wide so they never change under the filter)
   const famCount = {};
   for (const x of all) famCount[x.fam] = (famCount[x.fam] || 0) + 1;
-  const chips = [["", "All", all.length], ...Object.keys(famCount).sort().map(f => [f, famLabel(f), famCount[f]])]
+  const chips = [["", "All", all.length], ...Object.keys(famCount).sort(famSort).map(f => [f, famLabel(f), famCount[f]])]
     .map(([v, label, n]) => `<button class="chip ${fam === v ? "on" : ""}" data-fam="${esc(v)}">${esc(label)} <span>${n}</span></button>`).join("");
 
   const cov = coverage(id), c = cov?.groups ? covCounts(cov, fam) : null;
