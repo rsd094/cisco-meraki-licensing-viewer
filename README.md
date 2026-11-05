@@ -60,6 +60,15 @@ From a terminal you can also run `python3 server.py --open`, adding `--port 9000
   Edit it when new models ship. Mappings not confirmed in the docs are tagged **inferred**.
 - `server.py`: the local read-only server, using only the Python standard library.
 
+## API calls and rate limits
+
+- **Home page:** 1 call to list organizations, then 3 per co-term org (inventory, license overview, device statuses). Per-device and subscription orgs use 3–4. Two orgs = 7 calls.
+- **Organization page:** 6 calls for a co-term org (org, inventory, networks, device statuses, license overview, co-term licenses).
+- **Large orgs:** list endpoints return up to 1,000 items per call, so an org with 2,500 devices takes 3 calls for its inventory.
+- **Auto-refresh** repeats the current page's calls (every 5 minutes by default; it can be turned off).
+- **Pace:** at most 8 requests per second in total, below Meraki's limit of 10 per second per organization (shared by every app using that org) and 100 per second per source IP.
+- **429 (rate limited):** License Lens follows Meraki's guidance. It honors the `Retry-After` header, or pauses 1.5 s and doubles the wait (up to 30 s) on repeated 429s. It pauses all pending requests, not just the refused one, and retries up to 6 times.
+
 ## Meraki API endpoints used (all GET)
 
 | Purpose | Endpoint |

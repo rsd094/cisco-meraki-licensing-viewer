@@ -2,8 +2,13 @@
 """Local server for the Cisco Meraki License Lens.
 
 Serves the viewer and forwards GET /api/<path> to https://api.meraki.com/api/v1/<path>.
-It follows pagination (Link: rel=next) so list endpoints come back complete, and retries
-on 429 using Retry-After. Only GET requests are forwarded; nothing can be changed.
+It follows pagination (Link: rel=next) so list endpoints come back complete. Only GET
+requests are forwarded; nothing can be changed.
+
+Rate limits (https://developer.cisco.com/meraki/api-v1/rate-limit/): Meraki allows 10 requests
+per second per organization, shared by every app using it. This server sends at most 8 per
+second in total. On a 429 it honors Retry-After (or pauses 1.5s, doubling up to 30s on repeated
+429s), pauses every pending request, not just the refused one, and retries up to 6 times.
 
 API key: each user enters their own key in the viewer. It is kept in their browser and
 sent to this local server only, which passes it on to api.meraki.com and nowhere else.
@@ -15,6 +20,7 @@ Usage:  python3 server.py [--port 8765] [--open]
 import argparse
 import json
 import os
+import random
 import re
 import ssl
 import subprocess
@@ -62,19 +68,32 @@ def default_api_key():
 DEFAULT_KEY = None
 _lock = threading.Lock()
 _last = [0.0]
+_paused_until = [0.0]  # set on a 429 so every request waits, not just the one that was refused
+MAX_RETRIES = 6
 
 
 def throttle():
     with _lock:
-        wait = _last[0] + 1.0 / MAX_RPS - time.monotonic()
+        now = time.monotonic()
+        wait = max(_last[0] + 1.0 / MAX_RPS, _paused_until[0]) - now
         if wait > 0:
             time.sleep(wait)
         _last[0] = time.monotonic()
 
 
+def backoff_seconds(headers, attempt):
+    """How long to wait after a 429, per https://developer.cisco.com/meraki/api-v1/rate-limit/:
+    honor Retry-After; without it, pause one or two seconds and increase the wait on repeated 429s."""
+    try:
+        wait = float(headers.get("Retry-After"))
+    except (TypeError, ValueError):
+        wait = min(1.5 * 2 ** attempt, 30)  # 1.5s, 3s, 6s, 12s, 24s, 30s
+    return wait + random.uniform(0, 0.5)    # jitter so parallel requests don't all retry at once
+
+
 def meraki_get(url, key):
-    """One GET with 429 retry. Returns (status, body_bytes, headers)."""
-    for attempt in range(6):
+    """One GET with 429 back-off. Returns (status, body_bytes, headers)."""
+    for attempt in range(MAX_RETRIES + 1):
         throttle()
         # Every call to Meraki is a GET: this app never sends POST, PUT, PATCH or DELETE.
         req = urllib.request.Request(url, method="GET", headers={
@@ -86,8 +105,11 @@ def meraki_get(url, key):
             with urllib.request.urlopen(req, timeout=60, context=SSL_CTX) as r:
                 return r.status, r.read(), r.headers
         except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < 5:
-                time.sleep(float(e.headers.get("Retry-After", 2)))
+            if e.code == 429 and attempt < MAX_RETRIES:
+                wait = backoff_seconds(e.headers, attempt)
+                with _lock:
+                    _paused_until[0] = max(_paused_until[0], time.monotonic() + wait)
+                sys.stderr.write(f"Meraki rate limit (429): pausing {wait:.1f}s, retry {attempt + 1} of {MAX_RETRIES}\n")
                 continue
             return e.code, e.read(), e.headers
         except urllib.error.URLError as e:
