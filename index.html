@@ -69,6 +69,7 @@ tbody tr.click:hover { background: var(--accent-soft); }
 .bar > i { display: block; height: 100%; background: var(--accent); }
 .bar.ok > i { background: var(--ok); }
 .bar.lic > i { background: var(--seg-lic); }
+.bar.share > i { background: var(--share); }
 .muted { color: var(--muted); }
 .err { color: var(--bad); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; }
@@ -91,9 +92,9 @@ a.tilelink.on { font-weight: 600; }
 .tile.alert .v { color: var(--bad); }
 .tile .go { margin-top: 8px; font-size: 12.5px; padding: 4px 10px; }
 .tile .k .pc { text-transform: none; letter-spacing: 0; }
-:root { --seg-none: #bcc4cf; --seg-lic: #2a78d6; --seg-unlic: #eb6834; --seg-mon: #8f86d9; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --seg-none: #4a5361; --seg-lic: #3987e5; --seg-unlic: #d95926; --seg-mon: #9085e9; } }
-:root[data-theme="dark"] { --seg-none: #4a5361; --seg-lic: #3987e5; --seg-unlic: #d95926; --seg-mon: #9085e9; }
+:root { --share: #7a5bd6; --seg-none: #bcc4cf; --seg-lic: #2a78d6; --seg-unlic: #eb6834; --seg-mon: #8f86d9; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --share: #a48ff0; --seg-none: #4a5361; --seg-lic: #3987e5; --seg-unlic: #d95926; --seg-mon: #9085e9; } }
+:root[data-theme="dark"] { --share: #a48ff0; --seg-none: #4a5361; --seg-lic: #3987e5; --seg-unlic: #d95926; --seg-mon: #9085e9; }
 .split { padding: 12px 14px 14px; }
 .split .track { height: 18px; }
 .split .legend { margin-top: 8px; }
@@ -535,11 +536,11 @@ function shareLabel(orgs) {
   return !sub ? "% of deployed devices across all orgs" : sub === orgs.length ? "% of EA utilized" : "% of deployed devices across all orgs / % of EA utilized";
 }
 function shareCell(r) {
-  if (r.o.licensing?.model !== "subscription") return bar(r.share);
+  if (r.o.licensing?.model !== "subscription") return bar(r.share, "share");
   const u = r.c?.ea;
   if (!u) return r.c ? "" : covNote(r.cov);
   if (!u.limit) return '<span class="muted">No EA seats</span>';
-  return `${bar(r.share, "lic")}<div class="note" style="margin-top:1px">% of EA utilized · ${u.used} of ${u.limit} seats</div>`;
+  return `${bar(r.share, "share")}<div class="note" style="margin-top:1px">% of EA utilized · ${u.used} of ${u.limit} seats</div>`;
 }
 // Dormant: in a network, but Meraki hasn't heard from it in a while. It still uses a license.
 const DORMANT_SUB = "In a network but not checking in, so still using a license";
